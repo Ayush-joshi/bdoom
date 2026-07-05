@@ -1,0 +1,15 @@
+[Unit]
+Description=BDoom NestJS API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/bdoom/app/apps/api
+EnvironmentFile=/opt/bdoom/.env
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

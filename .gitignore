@@ -1,0 +1,12 @@
+node_modules
+dist
+.angular
+.env
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+logs
+*.log
+coverage
+.DS_Store
