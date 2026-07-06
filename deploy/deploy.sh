@@ -21,7 +21,18 @@ sudo mkdir -p "$APP_DIR" "$DATA_DIR" "$WEB_DIR"
 sudo chown -R ubuntu:ubuntu /opt/bdoom "$WEB_DIR"
 
 echo "Publishing Angular app..."
-WEB_INDEX="$(find apps/web/dist dist -path '*/index.html' -print 2>/dev/null | head -n 1)"
+WEB_SEARCH_DIRS=()
+if [[ -d apps/web/dist ]]; then
+  WEB_SEARCH_DIRS+=(apps/web/dist)
+fi
+if [[ -d dist ]]; then
+  WEB_SEARCH_DIRS+=(dist)
+fi
+if [[ ${#WEB_SEARCH_DIRS[@]} -eq 0 ]]; then
+  echo "Could not find Angular dist directory." >&2
+  exit 1
+fi
+WEB_INDEX="$(find "${WEB_SEARCH_DIRS[@]}" -path '*/index.html' -print | head -n 1)"
 WEB_BUILD_DIR="$(dirname "${WEB_INDEX:-.}")"
 if [[ -z "$WEB_BUILD_DIR" || ! -f "$WEB_BUILD_DIR/index.html" ]]; then
   echo "Could not find Angular index.html under apps/web/dist or dist." >&2
