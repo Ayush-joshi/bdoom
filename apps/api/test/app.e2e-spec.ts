@@ -8,6 +8,7 @@ import cookieParser = require('cookie-parser');
 import request = require('supertest');
 import { AppModule } from '../src/app.module';
 import { DatabaseService } from '../src/database/database.service';
+import { UserRole } from '../src/types';
 
 describe('BDoom API', () => {
   let app: INestApplication;
@@ -90,12 +91,113 @@ describe('BDoom API', () => {
     await request(app.getHttpServer()).get('/api/auth/me').expect(401);
   });
 
-  async function seedUser(username: string, password: string): Promise<void> {
+  it('allows admins to create limited users', async () => {
+    await seedUser('admin', 'secret-pass-12', 'admin');
+    const agent = request.agent(app.getHttpServer());
+    await login(agent, 'admin', 'secret-pass-12');
+
+    await agent
+      .post('/api/admin/users')
+      .send({
+        username: 'brother',
+        password: 'strong-pass-12',
+        role: 'brother',
+      })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          id: expect.any(Number),
+          username: 'brother',
+          role: 'brother',
+        });
+        expect(response.body.passwordHash).toBeUndefined();
+      });
+
+    await agent
+      .get('/api/admin/users')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ username: 'brother', role: 'brother' }),
+          ]),
+        );
+      });
+  });
+
+  it('blocks brother users from admin user management', async () => {
+    await seedUser('brother', 'secret-pass-12', 'brother');
+    const agent = request.agent(app.getHttpServer());
+    await login(agent, 'brother', 'secret-pass-12');
+
+    await agent.get('/api/admin/users').expect(403);
+  });
+
+  it('allows an admin to reset a user password', async () => {
+    await seedUser('admin', 'secret-pass-12', 'admin');
+    const brotherId = await seedUser('brother', 'old-secret-12', 'brother');
+    const agent = request.agent(app.getHttpServer());
+    await login(agent, 'admin', 'secret-pass-12');
+
+    await agent
+      .patch(`/api/admin/users/${brotherId}/password`)
+      .send({ password: 'new-secret-12' })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: 'brother', password: 'new-secret-12' })
+      .expect(201);
+  });
+
+  it('prevents removing the last admin role', async () => {
+    const adminId = await seedUser('admin', 'secret-pass-12', 'admin');
+    const agent = request.agent(app.getHttpServer());
+    await login(agent, 'admin', 'secret-pass-12');
+
+    await agent
+      .patch(`/api/admin/users/${adminId}/role`)
+      .send({ role: 'brother' })
+      .expect(400);
+  });
+
+  it('allows a signed-in user to change their own password', async () => {
+    await seedUser('admin', 'secret-pass-12', 'admin');
+    const agent = request.agent(app.getHttpServer());
+    await login(agent, 'admin', 'secret-pass-12');
+
+    await agent
+      .post('/api/auth/change-password')
+      .send({
+        currentPassword: 'secret-pass-12',
+        newPassword: 'new-secret-12',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ username: 'admin', password: 'new-secret-12' })
+      .expect(201);
+  });
+
+  async function seedUser(
+    username: string,
+    password: string,
+    role: UserRole = 'admin',
+  ): Promise<number> {
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-    await db.run('INSERT INTO users (username, passwordHash, role) VALUES (?, ?, ?)', [
-      username,
-      passwordHash,
-      'admin',
-    ]);
+    const result = await db.run(
+      'INSERT INTO users (username, passwordHash, role) VALUES (?, ?, ?)',
+      [username, passwordHash, role],
+    );
+    return result.lastID;
+  }
+
+  async function login(
+    agent: ReturnType<typeof request.agent>,
+    username: string,
+    password: string,
+  ): Promise<void> {
+    await agent.post('/api/auth/login').send({ username, password }).expect(201);
   }
 });

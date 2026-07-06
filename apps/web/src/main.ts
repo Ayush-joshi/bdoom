@@ -2,6 +2,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { provideRouter, Routes } from '@angular/router';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { AppComponent } from './app/app.component';
+import { AdminComponent } from './app/admin.component';
 import { authGuard, loginGuard } from './app/auth.guard';
 import { DashboardComponent } from './app/dashboard.component';
 import { LoginComponent } from './app/login.component';
@@ -36,7 +37,7 @@ const routes: Routes = [
   },
   {
     path: 'admin',
-    component: PlaceholderComponent,
+    component: AdminComponent,
     canActivate: [authGuard],
     data: { title: 'Admin', requiredRole: 'admin' },
   },

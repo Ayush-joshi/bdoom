@@ -45,4 +45,14 @@ export class AuthService {
     this.currentUser.set(null);
     await this.router.navigateByUrl('/login');
   }
+
+  changePassword(currentPassword: string, newPassword: string): Promise<unknown> {
+    return firstValueFrom(
+      this.http.post(
+        '/api/auth/change-password',
+        { currentPassword, newPassword },
+        { withCredentials: true },
+      ),
+    );
+  }
 }

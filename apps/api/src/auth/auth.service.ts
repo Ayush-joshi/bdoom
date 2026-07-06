@@ -1,11 +1,11 @@
 import * as crypto from 'node:crypto';
 import {
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import * as argon2 from 'argon2';
 import { getConfig } from '../config';
 import { DatabaseService } from '../database/database.service';
 import { SafeUser, SessionRecord, toSafeUser } from '../types';
@@ -33,9 +33,7 @@ export class AuthService {
     this.checkRateLimit(rateLimitKey);
 
     const user = await this.users.findByUsername(username);
-    const passwordOk = user
-      ? await argon2.verify(user.passwordHash, password)
-      : false;
+    const passwordOk = user ? await this.users.verifyPassword(user, password) : false;
 
     if (!user || !passwordOk) {
       this.recordFailedAttempt(rateLimitKey);
@@ -57,6 +55,32 @@ export class AuthService {
 
   async logout(sessionId: number): Promise<void> {
     await this.db.run('DELETE FROM sessions WHERE id = ?', [sessionId]);
+  }
+
+  async changePassword(
+    userId: number,
+    currentPassword: string,
+    newPassword: string,
+    currentSessionId: number,
+  ): Promise<void> {
+    const user = await this.users.findById(userId);
+    const passwordOk = user
+      ? await this.users.verifyPassword(user, currentPassword)
+      : false;
+
+    if (!user || !passwordOk) {
+      throw new ForbiddenException('Current password is incorrect');
+    }
+
+    await this.users.updatePassword(userId, newPassword);
+    await this.db.run('DELETE FROM sessions WHERE userId = ? AND id <> ?', [
+      userId,
+      currentSessionId,
+    ]);
+  }
+
+  async clearUserSessions(userId: number): Promise<void> {
+    await this.db.run('DELETE FROM sessions WHERE userId = ?', [userId]);
   }
 
   async authenticateToken(token: string | undefined): Promise<

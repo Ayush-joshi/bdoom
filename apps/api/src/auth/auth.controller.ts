@@ -11,6 +11,7 @@ import {
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { AuthService } from './auth.service';
+import { ChangePasswordDto } from './change-password.dto';
 import { LoginDto } from './login.dto';
 import { SESSION_COOKIE, SessionGuard } from './session.guard';
 
@@ -50,5 +51,20 @@ export class AuthController {
   @UseGuards(SessionGuard)
   me(@Req() request: AuthenticatedRequest) {
     return request.user;
+  }
+
+  @Post('change-password')
+  @UseGuards(SessionGuard)
+  async changePassword(
+    @Body() body: ChangePasswordDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    await this.auth.changePassword(
+      request.user!.id,
+      body.currentPassword,
+      body.newPassword,
+      request.session!.id,
+    );
+    return { ok: true };
   }
 }

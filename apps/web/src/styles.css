@@ -102,6 +102,16 @@ button:disabled {
   opacity: 0.56;
 }
 
+select {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: rgba(2, 6, 23, 0.82);
+  color: #f8fafc;
+  font: inherit;
+}
+
 .error {
   margin: 0;
   color: #fca5a5;
@@ -198,6 +208,103 @@ button:disabled {
   text-decoration: none;
 }
 
+.admin-shell {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+}
+
+.admin-header h1 {
+  font-size: clamp(2.4rem, 7vw, 4.8rem);
+}
+
+.admin-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.panel,
+.users-panel,
+.user-row {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.panel,
+.users-panel {
+  padding: 22px;
+}
+
+.panel h2,
+.users-panel h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.15rem;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.secondary-button {
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  background: rgba(15, 23, 42, 0.86);
+  color: #99f6e4;
+}
+
+.notice {
+  margin: 0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.notice.success {
+  color: #86efac;
+}
+
+.user-list {
+  display: grid;
+  gap: 12px;
+}
+
+.user-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 180px) minmax(260px, 1.5fr);
+  gap: 14px;
+  align-items: end;
+  padding: 16px;
+}
+
+.user-identity {
+  display: grid;
+  gap: 6px;
+  align-self: center;
+}
+
+.user-identity strong {
+  color: #f8fafc;
+  font-size: 1.05rem;
+}
+
+.user-identity span {
+  color: #5eead4;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.reset-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
 @media (max-width: 720px) {
   .login-shell,
   .dashboard-shell {
@@ -213,6 +320,12 @@ button:disabled {
   .user-box {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-layout,
+  .user-row,
+  .reset-form {
+    grid-template-columns: 1fr;
   }
 
   .user-box button {
