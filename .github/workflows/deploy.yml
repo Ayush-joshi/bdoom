@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: bdoom-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to OCI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Prepare SSH
+        env:
+          BDOOM_SSH_HOST: ${{ secrets.BDOOM_SSH_HOST }}
+          BDOOM_SSH_PRIVATE_KEY: ${{ secrets.BDOOM_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$BDOOM_SSH_HOST"
+          test -n "$BDOOM_SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$BDOOM_SSH_PRIVATE_KEY" > ~/.ssh/bdoom_deploy_key
+          chmod 600 ~/.ssh/bdoom_deploy_key
+          ssh-keyscan -H "$BDOOM_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy on VM
+        env:
+          BDOOM_SSH_HOST: ${{ secrets.BDOOM_SSH_HOST }}
+          BDOOM_SSH_USER: ${{ secrets.BDOOM_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/bdoom_deploy_key \
+            -o IdentitiesOnly=yes \
+            "${BDOOM_SSH_USER:-ubuntu}@${BDOOM_SSH_HOST}" \
+            'cd /opt/bdoom/repo && git pull --ff-only && ./deploy/deploy.sh'
+
+      - name: Verify production
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --head https://bdoom.duckdns.org/
+          curl --fail --show-error --silent https://bdoom.duckdns.org/api/health
