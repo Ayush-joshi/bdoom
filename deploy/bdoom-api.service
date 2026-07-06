@@ -5,7 +5,11 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/bdoom/app/apps/api
+WorkingDirectory=/opt/bdoom/app
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=BDOOM_DB_PATH=/opt/bdoom/data/bdoom.sqlite
 EnvironmentFile=/opt/bdoom/.env
 ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure

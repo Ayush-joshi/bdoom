@@ -34,8 +34,8 @@ For local development, set `COOKIE_SECURE=false` in `.env` unless you are servin
 Seed users:
 
 ```bash
-npm run seed:admin -- --username admin --password 'change-me'
-npm run seed:brother -- --username brother --password 'change-me-too'
+npm run seed:admin -- --username <admin_username> --password '<strong_local_password>'
+npm run seed:brother -- --username brother --password '<strong_local_password>'
 ```
 
 Run the API:

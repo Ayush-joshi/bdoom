@@ -16,8 +16,8 @@ Use a current Node.js LTS release. If Ubuntu's package is old, install Node from
 ```bash
 sudo mkdir -p /opt/bdoom
 sudo chown -R ubuntu:ubuntu /opt/bdoom
-git clone <your-repo-url> /opt/bdoom/source
-cd /opt/bdoom/source
+git clone git@github.com:<OWNER>/bdoom.git /opt/bdoom/repo
+cd /opt/bdoom/repo
 npm install
 ```
 
@@ -28,13 +28,13 @@ cp .env.example /opt/bdoom/.env
 nano /opt/bdoom/.env
 ```
 
-Set production values and keep secrets out of Git. Do not commit `.env`.
+Set production values, generate a strong `SESSION_SECRET`, and keep secrets out of Git. Do not commit `.env` and do not overwrite an existing `/opt/bdoom/.env`.
 
 ## Seed Accounts
 
 ```bash
-BDOOM_DB_PATH=/opt/bdoom/data/bdoom.sqlite npm run seed:admin -- --username <username> --password <password>
-BDOOM_DB_PATH=/opt/bdoom/data/bdoom.sqlite npm run seed:brother -- --username <username> --password <password>
+npm run seed:admin -- --username <admin_username> --password '<strong_password>'
+npm run seed:brother -- --username brother --password '<strong_password>'
 ```
 
 Use `--force` only when you intentionally want to replace an existing user's password hash and role.
@@ -51,7 +51,8 @@ chmod +x deploy/deploy.sh
 ```bash
 sudo cp deploy/bdoom-api.service /etc/systemd/system/bdoom-api.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now bdoom-api
+sudo systemctl enable bdoom-api
+sudo systemctl restart bdoom-api
 sudo systemctl status bdoom-api
 ```
 
