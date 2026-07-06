@@ -75,7 +75,7 @@ Then visit `https://bdoom.duckdns.org` and sign in with a seeded account.
 ## GitHub Actions Deployment
 
 The repository includes `.github/workflows/deploy.yml`. It deploys every push to
-`main` by SSHing into the OCI VM and running:
+`main` on the self-hosted GitHub Actions runner installed on the OCI VM:
 
 ```bash
 cd /opt/bdoom/repo
@@ -83,12 +83,5 @@ git pull --ff-only
 ./deploy/deploy.sh
 ```
 
-Configure these GitHub Actions repository secrets:
-
-```text
-BDOOM_SSH_HOST=161.118.186.104
-BDOOM_SSH_USER=ubuntu
-BDOOM_SSH_PRIVATE_KEY=<private key allowed to SSH as ubuntu>
-```
-
-Do not commit or paste private keys into the repository.
+The runner is expected to run on Linux ARM64 as `ubuntu`. Because it runs on the
+VM itself, GitHub does not need SSH access to the VM for deployments.
