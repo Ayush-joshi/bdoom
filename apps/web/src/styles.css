@@ -386,6 +386,20 @@ select {
   color: #cbd5e1;
 }
 
+.player-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.engine-status {
+  color: #94a3b8;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .admin-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

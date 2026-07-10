@@ -10,6 +10,12 @@ CADDY_FILE="/etc/caddy/Caddyfile"
 
 cd "$ROOT_DIR"
 
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "Installing FFmpeg for IPTV compatibility..."
+  sudo apt-get update
+  sudo apt-get install -y ffmpeg
+fi
+
 echo "Installing dependencies..."
 npm install
 

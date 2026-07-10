@@ -38,9 +38,36 @@ type HlsErrorData = {
   type?: string;
 };
 
+type DashPlayer = {
+  initialize(video: HTMLVideoElement, source: string, autoplay: boolean): void;
+  on(event: string, handler: (event: { error?: { message?: string }; event?: { message?: string } }) => void): void;
+  reset(): void;
+};
+
+type DashConstructor = {
+  MediaPlayer(): { create(): DashPlayer };
+};
+
+type MpegtsPlayer = {
+  attachMediaElement(video: HTMLVideoElement): void;
+  destroy(): void;
+  load(): void;
+  on(event: string, handler: (type: string, detail: string, info: unknown) => void): void;
+};
+
+type MpegtsConstructor = {
+  createPlayer(config: { isLive: boolean; type: 'flv' | 'mpegts'; url: string }): MpegtsPlayer;
+  Events: { ERROR: string };
+  isSupported(): boolean;
+};
+
+type StreamKind = 'dash' | 'flv' | 'hls' | 'mpegts' | 'native';
+
 declare global {
   interface Window {
     Hls?: HlsConstructor;
+    dashjs?: DashConstructor;
+    mpegts?: MpegtsConstructor;
   }
 }
 
@@ -164,6 +191,19 @@ declare global {
                 <p>{{ selectedChannel()?.country }} - Public IPTV-org stream</p>
               }
             </div>
+            @if (selectedChannel()) {
+              <div class="player-actions">
+                <span class="engine-status">Engine: {{ playerEngine() }}</span>
+                <button
+                  type="button"
+                  class="secondary-button"
+                  (click)="transcodeSelected()"
+                  [disabled]="transcoding()"
+                >
+                  {{ transcoding() ? 'Starting...' : 'Try compatible mode' }}
+                </button>
+              </div>
+            }
             @if (playerMessage()) {
               <p class="notice">{{ playerMessage() }}</p>
             }
@@ -183,11 +223,13 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   readonly error = signal('');
   readonly loading = signal(false);
   readonly playerError = signal('');
+  readonly playerEngine = signal('Waiting');
   readonly playerMessage = signal('');
   readonly query = signal('');
   readonly selectedChannel = signal<IptvChannel | null>(null);
   readonly selectedCountry = signal('');
   readonly selectedGroup = signal('');
+  readonly transcoding = signal(false);
 
   readonly filteredChannels = computed(() => {
     const catalog = this.catalog();
@@ -215,7 +257,10 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   });
 
   private hls: HlsInstance | null = null;
+  private dash: DashPlayer | null = null;
+  private mpegts: MpegtsPlayer | null = null;
   private playerReady = false;
+  private transcodeId: string | null = null;
 
   constructor(private readonly iptv: IptvService) {}
 
@@ -225,7 +270,8 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.destroyHls();
+    this.destroyPlayers();
+    void this.stopTranscode();
   }
 
   async load(): Promise<void> {
@@ -248,7 +294,31 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
 
   selectChannel(channel: IptvChannel): void {
     this.selectedChannel.set(channel);
+    void this.stopTranscode();
     void this.configurePlayer(channel);
+  }
+
+  async transcodeSelected(): Promise<void> {
+    const channel = this.selectedChannel();
+    if (!channel || this.transcoding()) {
+      return;
+    }
+
+    this.transcoding.set(true);
+    this.playerError.set('');
+    this.playerMessage.set('Preparing a browser-compatible H.264/AAC stream...');
+    try {
+      await this.stopTranscode();
+      const session = await this.iptv.startTranscode(channel.url);
+      this.transcodeId = session.id;
+      await this.configureSource(session.playlistUrl, 'hls', 'FFmpeg (H.264/AAC)');
+      this.playerMessage.set('Compatible mode is active. It may take a few seconds to begin.');
+    } catch (error) {
+      this.playerError.set(httpErrorMessage(error));
+      this.playerMessage.set('');
+    } finally {
+      this.transcoding.set(false);
+    }
   }
 
   handleVideoError(): void {
@@ -263,17 +333,62 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const video = this.videoRef.nativeElement;
     const source = proxiedStreamUrl(channel.url);
-    this.destroyHls();
+    await this.configureSource(source, detectStreamKind(channel.url));
+  }
+
+  private async configureSource(
+    source: string,
+    kind: StreamKind,
+    engineLabel?: string,
+  ): Promise<void> {
+    if (!this.videoRef) {
+      return;
+    }
+
+    const video = this.videoRef.nativeElement;
+    this.destroyPlayers();
     video.pause();
     video.removeAttribute('src');
     video.load();
     this.playerError.set('');
     this.playerMessage.set('');
 
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    if (kind === 'dash') {
+      const Dash = await loadDash();
+      if (Dash) {
+        this.dash = Dash.MediaPlayer().create();
+        this.dash.on('error', (event) => {
+          const message = event.error?.message || event.event?.message;
+          this.playerError.set(`DASH playback failed${message ? `: ${message}` : ''}. Try compatible mode.`);
+        });
+        this.dash.initialize(video, source, true);
+        this.playerEngine.set(engineLabel ?? 'DASH');
+        return;
+      }
+    }
+
+    if (kind === 'flv' || kind === 'mpegts') {
+      const Mpegts = await loadMpegts();
+      if (Mpegts?.isSupported()) {
+        this.mpegts = Mpegts.createPlayer({
+          type: kind === 'flv' ? 'flv' : 'mpegts',
+          isLive: true,
+          url: source,
+        });
+        this.mpegts.on(Mpegts.Events.ERROR, (type, detail) => {
+          this.playerError.set(`MPEG stream playback failed: ${type}${detail ? ` (${detail})` : ''}. Try compatible mode.`);
+        });
+        this.mpegts.attachMediaElement(video);
+        this.mpegts.load();
+        this.playerEngine.set(engineLabel ?? (kind === 'flv' ? 'FLV' : 'MPEG-TS'));
+        return;
+      }
+    }
+
+    if (kind === 'native' || video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = source;
+      this.playerEngine.set(engineLabel ?? 'Browser native');
       return;
     }
 
@@ -285,20 +400,36 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
       });
       this.hls.loadSource(source);
       this.hls.attachMedia(video);
+      this.playerEngine.set(engineLabel ?? 'HLS');
       return;
     }
 
     video.src = source;
-    this.playerMessage.set('This browser may not support the selected stream format.');
+    this.playerEngine.set(engineLabel ?? 'Browser fallback');
+    this.playerMessage.set('This browser may not support the selected stream format. Try compatible mode.');
   }
 
-  private destroyHls(): void {
+  private destroyPlayers(): void {
     this.hls?.destroy();
     this.hls = null;
+    this.dash?.reset();
+    this.dash = null;
+    this.mpegts?.destroy();
+    this.mpegts = null;
+  }
+
+  private async stopTranscode(): Promise<void> {
+    const id = this.transcodeId;
+    this.transcodeId = null;
+    if (id) {
+      await this.iptv.stopTranscode(id).catch(() => undefined);
+    }
   }
 }
 
 let hlsLoader: Promise<HlsConstructor | null> | undefined;
+let dashLoader: Promise<DashConstructor | null> | undefined;
+let mpegtsLoader: Promise<MpegtsConstructor | null> | undefined;
 
 function loadHls(): Promise<HlsConstructor | null> {
   if (window.Hls) {
@@ -315,6 +446,56 @@ function loadHls(): Promise<HlsConstructor | null> {
   });
 
   return hlsLoader;
+}
+
+function loadDash(): Promise<DashConstructor | null> {
+  if (window.dashjs) {
+    return Promise.resolve(window.dashjs);
+  }
+  dashLoader ??= loadScript(
+    'https://cdn.jsdelivr.net/npm/dashjs@5.0.3/dist/modern/umd/dash.all.min.js',
+    () => window.dashjs ?? null,
+  );
+  return dashLoader;
+}
+
+function loadMpegts(): Promise<MpegtsConstructor | null> {
+  if (window.mpegts) {
+    return Promise.resolve(window.mpegts);
+  }
+  mpegtsLoader ??= loadScript(
+    'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.0/dist/mpegts.min.js',
+    () => window.mpegts ?? null,
+  );
+  return mpegtsLoader;
+}
+
+function loadScript<T>(src: string, resolveValue: () => T): Promise<T | null> {
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve(resolveValue());
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
+}
+
+function detectStreamKind(url: string): StreamKind {
+  const pathname = new URL(url, window.location.href).pathname.toLowerCase();
+  if (pathname.endsWith('.mpd')) {
+    return 'dash';
+  }
+  if (pathname.endsWith('.flv')) {
+    return 'flv';
+  }
+  if (pathname.endsWith('.ts') || pathname.endsWith('.m2ts')) {
+    return 'mpegts';
+  }
+  if (pathname.endsWith('.mp4') || pathname.endsWith('.webm')) {
+    return 'native';
+  }
+  return 'hls';
 }
 
 function proxiedStreamUrl(url: string): string {
@@ -357,4 +538,15 @@ function videoErrorMessage(code: number | undefined, message: string | undefined
     default:
       return 'Video playback failed for this channel.';
   }
+}
+
+function httpErrorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'error' in error) {
+    const body = (error as { error?: { message?: string } | string }).error;
+    const message = typeof body === 'string' ? body : body?.message;
+    if (message) {
+      return `Compatible mode failed: ${message}`;
+    }
+  }
+  return 'Compatible mode could not start. The stream may be offline or FFmpeg may be unavailable.';
 }

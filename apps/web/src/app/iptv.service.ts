@@ -56,6 +56,16 @@ export class IptvService {
     );
     return this.catalog;
   }
+
+  startTranscode(url: string): Promise<{ id: string; playlistUrl: string }> {
+    return firstValueFrom(
+      this.http.post<{ id: string; playlistUrl: string }>('/api/iptv/transcode', { url }),
+    );
+  }
+
+  stopTranscode(id: string): Promise<unknown> {
+    return firstValueFrom(this.http.delete(`/api/iptv/transcode/${encodeURIComponent(id)}`));
+  }
 }
 
 function parsePlaylist(
