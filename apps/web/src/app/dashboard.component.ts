@@ -29,6 +29,12 @@ const cards: DashboardCard[] = [
     adminOnly: true,
   },
   {
+    title: 'IPTV',
+    path: '/iptv',
+    text: 'Browse and watch public live channels from the IPTV-org directory.',
+    adminOnly: false,
+  },
+  {
     title: 'Status',
     path: '/status',
     text: 'Gateway and home server status.',

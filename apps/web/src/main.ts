@@ -5,6 +5,7 @@ import { AppComponent } from './app/app.component';
 import { AdminComponent } from './app/admin.component';
 import { authGuard, loginGuard } from './app/auth.guard';
 import { DashboardComponent } from './app/dashboard.component';
+import { IptvComponent } from './app/iptv.component';
 import { LoginComponent } from './app/login.component';
 import { PlaceholderComponent } from './app/placeholder.component';
 
@@ -28,6 +29,12 @@ const routes: Routes = [
     component: PlaceholderComponent,
     canActivate: [authGuard],
     data: { title: 'AI', requiredRole: 'admin' },
+  },
+  {
+    path: 'iptv',
+    component: IptvComponent,
+    canActivate: [authGuard],
+    data: { title: 'IPTV', requiredRole: 'brother' },
   },
   {
     path: 'status',
