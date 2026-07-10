@@ -69,8 +69,11 @@ export class IptvController {
   }
 
   @Post('transcode')
-  startTranscode(@Body('url') url: string | undefined) {
-    return this.transcode.start(url);
+  startTranscode(
+    @Body('url') url: string | undefined,
+    @Body('bufferSeconds') bufferSeconds: number | undefined,
+  ) {
+    return this.transcode.start(url, bufferSeconds);
   }
 
   @Get('transcode/:id/:file')

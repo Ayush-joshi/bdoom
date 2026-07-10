@@ -272,6 +272,91 @@ select {
   gap: 12px;
 }
 
+.search-field {
+  position: relative;
+  z-index: 5;
+}
+
+.search-results {
+  background: #0f172a;
+  border: 1px solid #475569;
+  box-shadow: 0 16px 32px rgb(2 6 23 / 42%);
+  display: grid;
+  left: 0;
+  max-height: 360px;
+  overflow: auto;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+}
+
+.search-results button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgb(71 85 105 / 55%);
+  color: inherit;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  min-height: 56px;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.search-results button:hover,
+.search-results button:focus-visible {
+  background: rgb(13 148 136 / 20%);
+  outline: none;
+}
+
+.search-results button > span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.search-results strong,
+.search-results small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-results strong {
+  color: #f8fafc;
+  font-size: 0.9rem;
+}
+
+.search-results small,
+.search-results p {
+  color: #94a3b8;
+  font-size: 0.76rem;
+}
+
+.search-results p {
+  margin: 0;
+  padding: 16px;
+}
+
+.search-result-logo {
+  align-items: center;
+  background: #111827;
+  border: 1px solid #334155;
+  display: flex;
+  height: 38px;
+  justify-content: center;
+  overflow: hidden;
+  width: 38px;
+}
+
+.search-result-logo img {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
 .channel-summary {
   display: flex;
   align-items: baseline;
@@ -479,6 +564,44 @@ select {
   display: block;
   height: 100%;
   transition: width 180ms ease;
+}
+
+.buffer-setting {
+  background: rgb(2 6 23 / 34%);
+  border: 1px solid #334155;
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.buffer-setting > span {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.buffer-setting strong {
+  color: #e2e8f0;
+  font-size: 0.82rem;
+}
+
+.buffer-setting output {
+  color: #5eead4;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.buffer-setting input[type='range'] {
+  accent-color: #14b8a6;
+  cursor: pointer;
+  margin: 0;
+  width: 100%;
+}
+
+.buffer-setting input[type='range']:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .admin-layout {

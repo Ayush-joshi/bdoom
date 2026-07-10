@@ -57,9 +57,15 @@ export class IptvService {
     return this.catalog;
   }
 
-  startTranscode(url: string): Promise<{ id: string; playlistUrl: string }> {
+  startTranscode(
+    url: string,
+    bufferSeconds: number,
+  ): Promise<{ id: string; playlistUrl: string }> {
     return firstValueFrom(
-      this.http.post<{ id: string; playlistUrl: string }>('/api/iptv/transcode', { url }),
+      this.http.post<{ id: string; playlistUrl: string }>('/api/iptv/transcode', {
+        url,
+        bufferSeconds,
+      }),
     );
   }
 

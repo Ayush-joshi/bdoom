@@ -29,7 +29,10 @@ const maxConcurrentSessions = 3;
 export class IptvTranscodeService implements OnModuleDestroy {
   private readonly sessions = new Map<string, TranscodeSession>();
 
-  async start(rawUrl: string | undefined): Promise<{ id: string; playlistUrl: string }> {
+  async start(
+    rawUrl: string | undefined,
+    requestedBufferSeconds: number | undefined,
+  ): Promise<{ id: string; playlistUrl: string }> {
     if (this.sessions.size >= maxConcurrentSessions) {
       throw new ServiceUnavailableException(
         'The server is already preparing the maximum number of compatible streams. Try again shortly.',
@@ -37,6 +40,9 @@ export class IptvTranscodeService implements OnModuleDestroy {
     }
 
     const url = await validateRemoteUrl(rawUrl);
+    const bufferSeconds = clampBufferSeconds(requestedBufferSeconds);
+    const requiredSegments = Math.ceil(bufferSeconds / 2);
+    const playlistSize = requiredSegments + 4;
     const id = randomUUID();
     const dir = path.join(transcodeRoot, id);
     await mkdir(dir, { recursive: true });
@@ -82,7 +88,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
         '-hls_time',
         '2',
         '-hls_list_size',
-        '8',
+        String(playlistSize),
         '-hls_segment_type',
         'fmp4',
         '-hls_fmp4_init_filename',
@@ -111,7 +117,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
     this.sessions.set(id, { id, dir, process, timer });
 
     try {
-      await waitForBuffer(dir, process, () => stderr);
+      await waitForBuffer(dir, process, requiredSegments, () => stderr);
     } catch (error) {
       await this.stop(id);
       throw error;
@@ -164,13 +170,18 @@ export class IptvTranscodeService implements OnModuleDestroy {
 async function waitForBuffer(
   dir: string,
   process: ChildProcess,
+  requiredSegments: number,
   getStderr: () => string,
 ): Promise<void> {
-  const deadline = Date.now() + 30_000;
+  const startupTimeoutMs = Math.max(30_000, requiredSegments * 2_000 + 15_000);
+  const deadline = Date.now() + startupTimeoutMs;
 
   while (Date.now() < deadline) {
     const files = existsSync(dir) ? readdirSync(dir) : [];
-    if (files.includes('index.m3u8') && files.filter((file) => file.endsWith('.m4s')).length >= 3) {
+    if (
+      files.includes('index.m3u8') &&
+      files.filter((file) => file.endsWith('.m4s')).length >= requiredSegments
+    ) {
       return;
     }
     if (process.exitCode !== null) {
@@ -185,5 +196,12 @@ async function waitForBuffer(
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
-  throw new BadGatewayException('The stream did not build a playable buffer within 30 seconds.');
+  throw new BadGatewayException('The stream did not build the requested playback buffer in time.');
+}
+
+function clampBufferSeconds(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 10;
+  }
+  return Math.min(30, Math.max(6, Math.round(Number(value) / 2) * 2));
 }

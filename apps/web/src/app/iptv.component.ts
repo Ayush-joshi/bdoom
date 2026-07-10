@@ -19,7 +19,7 @@ type HlsInstance = {
 };
 
 type HlsConstructor = {
-  new (): HlsInstance;
+  new (config?: { maxBufferLength?: number; maxMaxBufferLength?: number }): HlsInstance;
   Events: {
     ERROR: string;
   };
@@ -91,7 +91,7 @@ declare global {
 
       <section class="iptv-layout">
         <div class="iptv-controls">
-          <label>
+          <label class="search-field">
             Search
             <input
               name="channelSearch"
@@ -99,7 +99,31 @@ declare global {
               placeholder="Channel, category, country"
               [ngModel]="query()"
               (ngModelChange)="query.set($event)"
+              (keydown.escape)="query.set('')"
+              role="combobox"
+              [attr.aria-expanded]="!!query().trim()"
             />
+            @if (query().trim()) {
+              <div class="search-results" role="list" aria-label="Channel search results">
+                @for (channel of searchSuggestions(); track channel.id + channel.url) {
+                  <button type="button" (click)="selectSearchResult(channel)">
+                    <span class="search-result-logo">
+                      @if (channel.logo) {
+                        <img [src]="channel.logo" [alt]="" loading="lazy" />
+                      } @else {
+                        {{ channel.name.slice(0, 1) }}
+                      }
+                    </span>
+                    <span>
+                      <strong>{{ channel.name }}</strong>
+                      <small>{{ channel.group }} - {{ channel.country }}</small>
+                    </span>
+                  </button>
+                } @empty {
+                  <p>No matching channels</p>
+                }
+              </div>
+            }
           </label>
 
           <div class="iptv-filter-grid">
@@ -231,6 +255,22 @@ declare global {
                   {{ transcoding() ? 'Buffer: preparing' : 'Buffer: ' + bufferAhead().toFixed(1) + 's ahead' }}
                 </small>
               </div>
+              <label class="buffer-setting">
+                <span>
+                  <strong>Compatible startup buffer</strong>
+                  <output>{{ startupBufferSeconds() }}s</output>
+                </span>
+                <input
+                  type="range"
+                  min="6"
+                  max="30"
+                  step="2"
+                  [ngModel]="startupBufferSeconds()"
+                  (ngModelChange)="startupBufferSeconds.set(+$event)"
+                  [disabled]="transcoding() || playbackMode() === 'compatible'"
+                  aria-label="Compatible mode startup buffer seconds"
+                />
+              </label>
             }
             @if (playerMessage()) {
               <p class="notice">{{ playerMessage() }}</p>
@@ -249,7 +289,9 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
 
   readonly catalog = signal<IptvCatalog | null>(null);
   readonly bufferAhead = signal(0);
-  readonly bufferPercent = computed(() => Math.min(100, (this.bufferAhead() / 12) * 100));
+  readonly bufferPercent = computed(() =>
+    Math.min(100, (this.bufferAhead() / this.startupBufferSeconds()) * 100),
+  );
   readonly error = signal('');
   readonly loading = signal(false);
   readonly playerError = signal('');
@@ -260,6 +302,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   readonly selectedChannel = signal<IptvChannel | null>(null);
   readonly selectedCountry = signal('');
   readonly selectedGroup = signal('');
+  readonly startupBufferSeconds = signal(10);
   readonly transcoding = signal(false);
 
   readonly filteredChannels = computed(() => {
@@ -286,6 +329,8 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
       })
       .slice(0, 400);
   });
+
+  readonly searchSuggestions = computed(() => this.filteredChannels().slice(0, 8));
 
   private hls: HlsInstance | null = null;
   private dash: DashPlayer | null = null;
@@ -332,6 +377,11 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     void this.configurePlayer(channel);
   }
 
+  selectSearchResult(channel: IptvChannel): void {
+    this.query.set('');
+    this.selectChannel(channel);
+  }
+
   async useOriginalMode(): Promise<void> {
     const channel = this.selectedChannel();
     if (!channel || (this.playbackMode() === 'original' && !this.transcoding())) {
@@ -353,10 +403,15 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     const requestId = ++this.playerRequestId;
     this.transcoding.set(true);
     this.playerError.set('');
-    this.playerMessage.set('Preparing a browser-compatible H.264/AAC stream...');
+    this.playerMessage.set(
+      `Preparing a browser-compatible stream with ${this.startupBufferSeconds()}s of startup buffer...`,
+    );
     try {
       await this.stopTranscode();
-      const session = await this.iptv.startTranscode(channel.url);
+      const session = await this.iptv.startTranscode(
+        channel.url,
+        this.startupBufferSeconds(),
+      );
       if (requestId !== this.playerRequestId) {
         await this.iptv.stopTranscode(session.id).catch(() => undefined);
         return;
@@ -364,7 +419,9 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
       this.transcodeId = session.id;
       await this.configureSource(session.playlistUrl, 'hls', 'FFmpeg (H.264/AAC)');
       this.playbackMode.set('compatible');
-      this.playerMessage.set('Compatible mode is active. It may take a few seconds to begin.');
+      this.playerMessage.set(
+        `Compatible mode is active with a ${this.startupBufferSeconds()}s startup buffer.`,
+      );
     } catch (error) {
       this.playbackMode.set('original');
       this.playerError.set(httpErrorMessage(error));
@@ -467,7 +524,11 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
 
     const Hls = await loadHls();
     if (Hls?.isSupported()) {
-      this.hls = new Hls();
+      const targetBuffer = this.startupBufferSeconds();
+      this.hls = new Hls({
+        maxBufferLength: targetBuffer,
+        maxMaxBufferLength: targetBuffer * 2,
+      });
       this.hls.on(Hls.Events.ERROR, (_event, data) => {
         this.playerError.set(hlsErrorMessage(data));
       });
