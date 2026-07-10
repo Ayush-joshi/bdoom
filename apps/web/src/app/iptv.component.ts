@@ -15,11 +15,27 @@ type HlsInstance = {
   attachMedia(video: HTMLVideoElement): void;
   destroy(): void;
   loadSource(source: string): void;
+  on(event: string, handler: (_event: string, data: HlsErrorData) => void): void;
 };
 
 type HlsConstructor = {
   new (): HlsInstance;
+  Events: {
+    ERROR: string;
+  };
   isSupported(): boolean;
+};
+
+type HlsErrorData = {
+  details?: string;
+  error?: Error;
+  fatal?: boolean;
+  networkDetails?: {
+    status?: number;
+    statusText?: string;
+    responseURL?: string;
+  };
+  type?: string;
 };
 
 declare global {
@@ -136,6 +152,7 @@ declare global {
               playsinline
               preload="metadata"
               [poster]="selectedChannel()?.logo || ''"
+              (error)="handleVideoError()"
             ></video>
           </div>
 
@@ -150,6 +167,9 @@ declare global {
             @if (playerMessage()) {
               <p class="notice">{{ playerMessage() }}</p>
             }
+            @if (playerError()) {
+              <p class="notice error">{{ playerError() }}</p>
+            }
           </div>
         </section>
       </section>
@@ -162,6 +182,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   readonly catalog = signal<IptvCatalog | null>(null);
   readonly error = signal('');
   readonly loading = signal(false);
+  readonly playerError = signal('');
   readonly playerMessage = signal('');
   readonly query = signal('');
   readonly selectedChannel = signal<IptvChannel | null>(null);
@@ -230,6 +251,13 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     void this.configurePlayer(channel);
   }
 
+  handleVideoError(): void {
+    const video = this.videoRef?.nativeElement;
+    const code = video?.error?.code;
+    const message = video?.error?.message;
+    this.playerError.set(videoErrorMessage(code, message));
+  }
+
   private async configurePlayer(channel: IptvChannel): Promise<void> {
     if (!this.playerReady || !this.videoRef) {
       return;
@@ -241,6 +269,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     video.pause();
     video.removeAttribute('src');
     video.load();
+    this.playerError.set('');
     this.playerMessage.set('');
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -251,6 +280,9 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     const Hls = await loadHls();
     if (Hls?.isSupported()) {
       this.hls = new Hls();
+      this.hls.on(Hls.Events.ERROR, (_event, data) => {
+        this.playerError.set(hlsErrorMessage(data));
+      });
       this.hls.loadSource(source);
       this.hls.attachMedia(video);
       return;
@@ -287,4 +319,42 @@ function loadHls(): Promise<HlsConstructor | null> {
 
 function proxiedStreamUrl(url: string): string {
   return `/api/iptv/proxy?url=${encodeURIComponent(url)}`;
+}
+
+function hlsErrorMessage(data: HlsErrorData): string {
+  const status = data.networkDetails?.status;
+  const statusText = data.networkDetails?.statusText;
+
+  if (status) {
+    return `Stream request failed with HTTP ${status}${statusText ? ` ${statusText}` : ''}. This channel may be offline, geo-blocked, or refusing proxy playback.`;
+  }
+
+  if (data.type === 'networkError') {
+    return `Network error while loading this stream${data.details ? `: ${data.details}` : ''}.`;
+  }
+
+  if (data.type === 'mediaError') {
+    return `Media error while decoding this stream${data.details ? `: ${data.details}` : ''}. The channel may use an unsupported format.`;
+  }
+
+  return `Stream playback failed${data.details ? `: ${data.details}` : ''}.`;
+}
+
+function videoErrorMessage(code: number | undefined, message: string | undefined): string {
+  if (message) {
+    return `Video playback failed: ${message}`;
+  }
+
+  switch (code) {
+    case MediaError.MEDIA_ERR_ABORTED:
+      return 'Video playback was aborted.';
+    case MediaError.MEDIA_ERR_NETWORK:
+      return 'Video playback failed because the stream network request failed.';
+    case MediaError.MEDIA_ERR_DECODE:
+      return 'Video playback failed because the stream could not be decoded.';
+    case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+      return 'Video playback failed because this stream format is not supported.';
+    default:
+      return 'Video playback failed for this channel.';
+  }
 }

@@ -33,7 +33,11 @@ export class IptvController {
     });
 
     if (!upstream.ok) {
-      res.status(upstream.status).send('IPTV upstream request failed.');
+      const message =
+        upstream.status === 403
+          ? 'IPTV upstream refused access. This stream may be geo-blocked or require a specific player.'
+          : `IPTV upstream request failed with HTTP ${upstream.status}.`;
+      res.status(upstream.status).type('text/plain').send(message);
       return;
     }
 
