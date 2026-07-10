@@ -90,49 +90,50 @@ declare global {
       </header>
 
       <section class="iptv-layout">
-        <aside class="iptv-browser">
-          <div class="iptv-controls">
+        <div class="iptv-controls">
+          <label>
+            Search
+            <input
+              name="channelSearch"
+              autocomplete="off"
+              placeholder="Channel, category, country"
+              [ngModel]="query()"
+              (ngModelChange)="query.set($event)"
+            />
+          </label>
+
+          <div class="iptv-filter-grid">
             <label>
-              Search
-              <input
-                name="channelSearch"
-                autocomplete="off"
-                placeholder="Channel, category, country"
-                [ngModel]="query()"
-                (ngModelChange)="query.set($event)"
-              />
+              Category
+              <select
+                name="channelGroup"
+                [ngModel]="selectedGroup()"
+                (ngModelChange)="selectedGroup.set($event)"
+              >
+                <option value="">All categories</option>
+                @for (group of catalog()?.groups ?? []; track group) {
+                  <option [value]="group">{{ group }}</option>
+                }
+              </select>
             </label>
 
-            <div class="iptv-filter-grid">
-              <label>
-                Category
-                <select
-                  name="channelGroup"
-                  [ngModel]="selectedGroup()"
-                  (ngModelChange)="selectedGroup.set($event)"
-                >
-                  <option value="">All categories</option>
-                  @for (group of catalog()?.groups ?? []; track group) {
-                    <option [value]="group">{{ group }}</option>
-                  }
-                </select>
-              </label>
-
-              <label>
-                Country
-                <select
-                  name="channelCountry"
-                  [ngModel]="selectedCountry()"
-                  (ngModelChange)="selectedCountry.set($event)"
-                >
-                  <option value="">All countries</option>
-                  @for (country of catalog()?.countries ?? []; track country) {
-                    <option [value]="country">{{ country }}</option>
-                  }
-                </select>
-              </label>
-            </div>
+            <label>
+              Country
+              <select
+                name="channelCountry"
+                [ngModel]="selectedCountry()"
+                (ngModelChange)="selectedCountry.set($event)"
+              >
+                <option value="">All countries</option>
+                @for (country of catalog()?.countries ?? []; track country) {
+                  <option [value]="country">{{ country }}</option>
+                }
+              </select>
+            </label>
           </div>
+        </div>
+
+        <aside class="iptv-browser">
 
           @if (loading()) {
             <p class="notice">Loading the public IPTV directory...</p>
