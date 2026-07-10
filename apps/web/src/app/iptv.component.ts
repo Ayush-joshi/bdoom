@@ -180,7 +180,12 @@ declare global {
               preload="metadata"
               [poster]="selectedChannel()?.logo || ''"
               (error)="handleVideoError()"
+              (progress)="updateBuffer()"
+              (timeupdate)="updateBuffer()"
             ></video>
+            @if (transcoding()) {
+              <div class="buffer-overlay">Building compatible buffer...</div>
+            }
           </div>
 
           <div class="player-meta">
@@ -194,14 +199,36 @@ declare global {
             @if (selectedChannel()) {
               <div class="player-actions">
                 <span class="engine-status">Engine: {{ playerEngine() }}</span>
-                <button
-                  type="button"
-                  class="secondary-button"
-                  (click)="transcodeSelected()"
-                  [disabled]="transcoding()"
-                >
-                  {{ transcoding() ? 'Starting...' : 'Try compatible mode' }}
-                </button>
+                <div class="mode-switch" aria-label="Playback mode">
+                  <button
+                    type="button"
+                    class="mode-button"
+                    [class.active]="playbackMode() === 'original'"
+                    [attr.aria-pressed]="playbackMode() === 'original'"
+                    (click)="useOriginalMode()"
+                    [disabled]="playbackMode() === 'original' && !transcoding()"
+                  >
+                    Original
+                  </button>
+                  <button
+                    type="button"
+                    class="mode-button"
+                    [class.active]="playbackMode() === 'compatible'"
+                    [attr.aria-pressed]="playbackMode() === 'compatible'"
+                    (click)="useCompatibleMode()"
+                    [disabled]="transcoding() || playbackMode() === 'compatible'"
+                  >
+                    {{ transcoding() ? 'Preparing...' : 'Compatible' }}
+                  </button>
+                </div>
+              </div>
+              <div class="buffer-readout">
+                <div class="buffer-track" aria-hidden="true">
+                  <span [style.width.%]="bufferPercent()"></span>
+                </div>
+                <small>
+                  {{ transcoding() ? 'Buffer: preparing' : 'Buffer: ' + bufferAhead().toFixed(1) + 's ahead' }}
+                </small>
               </div>
             }
             @if (playerMessage()) {
@@ -220,11 +247,14 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   @ViewChild('videoPlayer') private readonly videoRef?: ElementRef<HTMLVideoElement>;
 
   readonly catalog = signal<IptvCatalog | null>(null);
+  readonly bufferAhead = signal(0);
+  readonly bufferPercent = computed(() => Math.min(100, (this.bufferAhead() / 12) * 100));
   readonly error = signal('');
   readonly loading = signal(false);
   readonly playerError = signal('');
   readonly playerEngine = signal('Waiting');
   readonly playerMessage = signal('');
+  readonly playbackMode = signal<'compatible' | 'original'>('original');
   readonly query = signal('');
   readonly selectedChannel = signal<IptvChannel | null>(null);
   readonly selectedCountry = signal('');
@@ -260,6 +290,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   private dash: DashPlayer | null = null;
   private mpegts: MpegtsPlayer | null = null;
   private playerReady = false;
+  private playerRequestId = 0;
   private transcodeId: string | null = null;
 
   constructor(private readonly iptv: IptvService) {}
@@ -293,31 +324,54 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   }
 
   selectChannel(channel: IptvChannel): void {
+    this.playerRequestId += 1;
     this.selectedChannel.set(channel);
+    this.playbackMode.set('original');
     void this.stopTranscode();
     void this.configurePlayer(channel);
   }
 
-  async transcodeSelected(): Promise<void> {
+  async useOriginalMode(): Promise<void> {
+    const channel = this.selectedChannel();
+    if (!channel || (this.playbackMode() === 'original' && !this.transcoding())) {
+      return;
+    }
+    this.playerRequestId += 1;
+    this.transcoding.set(false);
+    this.playbackMode.set('original');
+    await this.stopTranscode();
+    await this.configurePlayer(channel);
+  }
+
+  async useCompatibleMode(): Promise<void> {
     const channel = this.selectedChannel();
     if (!channel || this.transcoding()) {
       return;
     }
 
+    const requestId = ++this.playerRequestId;
     this.transcoding.set(true);
     this.playerError.set('');
     this.playerMessage.set('Preparing a browser-compatible H.264/AAC stream...');
     try {
       await this.stopTranscode();
       const session = await this.iptv.startTranscode(channel.url);
+      if (requestId !== this.playerRequestId) {
+        await this.iptv.stopTranscode(session.id).catch(() => undefined);
+        return;
+      }
       this.transcodeId = session.id;
       await this.configureSource(session.playlistUrl, 'hls', 'FFmpeg (H.264/AAC)');
+      this.playbackMode.set('compatible');
       this.playerMessage.set('Compatible mode is active. It may take a few seconds to begin.');
     } catch (error) {
+      this.playbackMode.set('original');
       this.playerError.set(httpErrorMessage(error));
       this.playerMessage.set('');
     } finally {
-      this.transcoding.set(false);
+      if (requestId === this.playerRequestId) {
+        this.transcoding.set(false);
+      }
     }
   }
 
@@ -326,6 +380,23 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     const code = video?.error?.code;
     const message = video?.error?.message;
     this.playerError.set(videoErrorMessage(code, message));
+  }
+
+  updateBuffer(): void {
+    const video = this.videoRef?.nativeElement;
+    if (!video || video.buffered.length === 0) {
+      this.bufferAhead.set(0);
+      return;
+    }
+
+    const currentTime = video.currentTime;
+    for (let index = 0; index < video.buffered.length; index += 1) {
+      if (currentTime >= video.buffered.start(index) && currentTime <= video.buffered.end(index)) {
+        this.bufferAhead.set(Math.max(0, video.buffered.end(index) - currentTime));
+        return;
+      }
+    }
+    this.bufferAhead.set(0);
   }
 
   private async configurePlayer(channel: IptvChannel): Promise<void> {
@@ -351,6 +422,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     video.pause();
     video.removeAttribute('src');
     video.load();
+    this.bufferAhead.set(0);
     this.playerError.set('');
     this.playerMessage.set('');
 

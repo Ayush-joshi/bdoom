@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ChildProcess, spawn } from 'node:child_process';
-import { createReadStream, existsSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -47,6 +47,8 @@ export class IptvTranscodeService implements OnModuleDestroy {
         '-hide_banner',
         '-loglevel',
         'warning',
+        '-fflags',
+        '+genpts+discardcorrupt',
         '-user_agent',
         'Mozilla/5.0 BDoom-IPTV/1.0',
         '-i',
@@ -61,22 +63,34 @@ export class IptvTranscodeService implements OnModuleDestroy {
         'veryfast',
         '-tune',
         'zerolatency',
+        '-profile:v',
+        'main',
         '-pix_fmt',
         'yuv420p',
+        '-force_key_frames',
+        'expr:gte(t,n_forced*2)',
         '-c:a',
         'aac',
         '-b:a',
         '128k',
+        '-af',
+        'aresample=async=1:first_pts=0',
+        '-avoid_negative_ts',
+        'make_zero',
         '-f',
         'hls',
         '-hls_time',
-        '4',
+        '2',
         '-hls_list_size',
         '8',
+        '-hls_segment_type',
+        'fmp4',
+        '-hls_fmp4_init_filename',
+        'init.mp4',
         '-hls_flags',
-        'delete_segments+append_list+omit_endlist',
+        'delete_segments+omit_endlist+independent_segments+discont_start',
         '-hls_segment_filename',
-        path.join(dir, 'segment-%05d.ts'),
+        path.join(dir, 'segment-%05d.m4s'),
         path.join(dir, 'index.m3u8'),
       ],
       { stdio: ['ignore', 'ignore', 'pipe'] },
@@ -97,7 +111,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
     this.sessions.set(id, { id, dir, process, timer });
 
     try {
-      await waitForPlaylist(path.join(dir, 'index.m3u8'), process, () => stderr);
+      await waitForBuffer(dir, process, () => stderr);
     } catch (error) {
       await this.stop(id);
       throw error;
@@ -128,7 +142,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
 
   async serve(id: string, file: string, res: Response): Promise<void> {
     const session = this.sessions.get(id);
-    if (!session || !/^(index\.m3u8|segment-\d+\.ts)$/.test(file)) {
+    if (!session || !/^(index\.m3u8|init\.mp4|segment-\d+\.m4s)$/.test(file)) {
       throw new NotFoundException('Transcode session was not found.');
     }
 
@@ -138,7 +152,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
     }
 
     res.setHeader('cache-control', 'no-store');
-    res.type(file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t');
+    res.type(file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp4');
     createReadStream(filePath).pipe(res);
   }
 
@@ -147,15 +161,16 @@ export class IptvTranscodeService implements OnModuleDestroy {
   }
 }
 
-async function waitForPlaylist(
-  playlistPath: string,
+async function waitForBuffer(
+  dir: string,
   process: ChildProcess,
   getStderr: () => string,
 ): Promise<void> {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + 30_000;
 
   while (Date.now() < deadline) {
-    if (existsSync(playlistPath)) {
+    const files = existsSync(dir) ? readdirSync(dir) : [];
+    if (files.includes('index.m3u8') && files.filter((file) => file.endsWith('.m4s')).length >= 3) {
       return;
     }
     if (process.exitCode !== null) {
@@ -170,5 +185,5 @@ async function waitForPlaylist(
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
-  throw new BadGatewayException('The stream did not produce playable video within 15 seconds.');
+  throw new BadGatewayException('The stream did not build a playable buffer within 30 seconds.');
 }

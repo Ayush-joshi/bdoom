@@ -359,6 +359,19 @@ select {
   border-radius: 8px;
   background: #020617;
   aspect-ratio: 16 / 9;
+  position: relative;
+}
+
+.buffer-overlay {
+  align-items: center;
+  background: rgb(2 6 23 / 78%);
+  color: #f8fafc;
+  display: flex;
+  font-size: 0.9rem;
+  font-weight: 700;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
 }
 
 .video-frame video {
@@ -398,6 +411,58 @@ select {
   color: #94a3b8;
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.mode-switch {
+  background: #111827;
+  border: 1px solid #334155;
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+}
+
+.mode-button {
+  background: transparent;
+  border: 0;
+  color: #94a3b8;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.mode-button.active {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.mode-button:disabled {
+  cursor: default;
+}
+
+.buffer-readout {
+  display: grid;
+  gap: 6px;
+}
+
+.buffer-readout small {
+  color: #94a3b8;
+  font-size: 0.76rem;
+}
+
+.buffer-track {
+  background: #334155;
+  height: 4px;
+  overflow: hidden;
+}
+
+.buffer-track span {
+  background: #22c55e;
+  display: block;
+  height: 100%;
+  transition: width 180ms ease;
 }
 
 .admin-layout {
