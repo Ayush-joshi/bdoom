@@ -37,6 +37,15 @@ const routes: Routes = [
     data: { title: 'IPTV', requiredRole: 'brother' },
   },
   {
+    path: 'radio',
+    loadComponent: () =>
+      import('./app/features/radio/radio-page/radio-page.component').then(
+        (module) => module.RadioPageComponent,
+      ),
+    canActivate: [authGuard],
+    data: { title: 'IP Radio', requiredRole: 'brother' },
+  },
+  {
     path: 'status',
     component: PlaceholderComponent,
     canActivate: [authGuard],

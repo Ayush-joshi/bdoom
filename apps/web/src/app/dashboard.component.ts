@@ -35,6 +35,12 @@ const cards: DashboardCard[] = [
     adminOnly: false,
   },
   {
+    title: 'IP Radio',
+    path: '/radio',
+    text: 'Explore the world map and listen to nearby public radio stations.',
+    adminOnly: false,
+  },
+  {
     title: 'Status',
     path: '/status',
     text: 'Gateway and home server status.',
