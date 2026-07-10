@@ -236,6 +236,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     }
 
     const video = this.videoRef.nativeElement;
+    const source = proxiedStreamUrl(channel.url);
     this.destroyHls();
     video.pause();
     video.removeAttribute('src');
@@ -243,19 +244,19 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     this.playerMessage.set('');
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = channel.url;
+      video.src = source;
       return;
     }
 
     const Hls = await loadHls();
     if (Hls?.isSupported()) {
       this.hls = new Hls();
-      this.hls.loadSource(channel.url);
+      this.hls.loadSource(source);
       this.hls.attachMedia(video);
       return;
     }
 
-    video.src = channel.url;
+    video.src = source;
     this.playerMessage.set('This browser may not support the selected stream format.');
   }
 
@@ -282,4 +283,8 @@ function loadHls(): Promise<HlsConstructor | null> {
   });
 
   return hlsLoader;
+}
+
+function proxiedStreamUrl(url: string): string {
+  return `/api/iptv/proxy?url=${encodeURIComponent(url)}`;
 }

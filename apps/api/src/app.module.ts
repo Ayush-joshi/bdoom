@@ -3,6 +3,7 @@ import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
+import { IptvModule } from './iptv/iptv.module';
 import { StatusModule } from './status/status.module';
 import { UsersModule } from './users/users.module';
 
@@ -12,6 +13,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     AuthModule,
     HealthModule,
+    IptvModule,
     StatusModule,
     AdminModule,
   ],
