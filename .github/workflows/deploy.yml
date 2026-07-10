@@ -27,5 +27,9 @@ jobs:
       - name: Verify production
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent --head https://bdoom.duckdns.org/
-          curl --fail --show-error --silent https://bdoom.duckdns.org/api/health
+          curl --fail --show-error --silent --head \
+            --retry 15 --retry-all-errors --retry-delay 2 --retry-max-time 60 \
+            https://bdoom.duckdns.org/
+          curl --fail --show-error --silent \
+            --retry 15 --retry-all-errors --retry-delay 2 --retry-max-time 60 \
+            https://bdoom.duckdns.org/api/health
