@@ -20,7 +20,6 @@ const textContentTypes = [
   'application/x-mpegurl',
   'audio/mpegurl',
   'audio/x-mpegurl',
-  'text/plain',
 ];
 
 @Controller('iptv')
