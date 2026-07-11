@@ -92,7 +92,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
       CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(tokenHash);
       CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(userId);
+    `);
 
+    try {
+      const cols = await this.all<{ name: string }>("PRAGMA table_info(radio_stations)");
+      const hasSource = cols.some((c) => c.name === 'source');
+      if (cols.length > 0 && !hasSource) {
+        await this.exec('DROP TABLE radio_stations');
+      }
+    } catch {
+      // Ignore if table check fails
+    }
+
+    await this.exec(`
       CREATE TABLE IF NOT EXISTS radio_stations (
         stationuuid TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -110,7 +122,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         hls INTEGER,
         lastcheckok INTEGER,
         geo_lat REAL NOT NULL,
-        geo_long REAL NOT NULL
+        geo_long REAL NOT NULL,
+        source TEXT NOT NULL,
+        source_references TEXT NOT NULL,
+        alternative_urls TEXT NOT NULL,
+        recent_success INTEGER NOT NULL DEFAULT 0,
+        recent_failures INTEGER NOT NULL DEFAULT 0
       );
     `);
   }

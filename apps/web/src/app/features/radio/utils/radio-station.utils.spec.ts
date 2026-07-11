@@ -91,5 +91,6 @@ function station(id: string, latitude: number, longitude: number): RadioStation 
     geo_long: longitude,
     streamUrl: 'https://example.com/live',
     isHttps: true,
+    source: 'radio-browser',
   };
 }

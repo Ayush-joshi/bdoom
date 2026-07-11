@@ -11,7 +11,10 @@ import { RadioPlayerService } from '../services/radio-player.service';
           <span class="radio-live-dot" aria-hidden="true"></span>
           <div>
             <strong>{{ station.name }}</strong>
-            <small>{{ station.country || 'World radio' }}</small>
+            <small>
+              {{ station.country || 'World radio' }}
+              · <span class="playback-mode-badge">{{ player.playbackMode() }}</span>
+            </small>
           </div>
         </div>
         <div class="radio-player-controls">

@@ -11,12 +11,20 @@ export class RadioBrowserService {
     latitude: number,
     longitude: number,
     radius?: number,
+    name?: string,
+    source?: string,
   ): Promise<{ stations: NearbyStation[]; usedNearestFallback: boolean }> {
     let params = new HttpParams()
       .set('lat', latitude.toString())
       .set('lng', longitude.toString());
     if (radius !== undefined) {
       params = params.set('radius', radius.toString());
+    }
+    if (name) {
+      params = params.set('name', name);
+    }
+    if (source) {
+      params = params.set('source', source);
     }
 
     return firstValueFrom(
@@ -37,5 +45,15 @@ export class RadioBrowserService {
         { params },
       ),
     );
+  }
+
+  async reportPlayback(stationuuid: string, success: boolean): Promise<void> {
+    try {
+      await firstValueFrom(
+        this.http.post<{ success: boolean }>('/api/radio/report', { stationuuid, success }),
+      );
+    } catch {
+      // Ignore background reporting errors
+    }
   }
 }

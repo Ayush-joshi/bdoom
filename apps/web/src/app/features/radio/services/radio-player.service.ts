@@ -22,23 +22,52 @@ export class RadioPlayerService {
   readonly loading = signal(false);
   readonly playing = signal(false);
   readonly volume = signal(0.8);
+  readonly playbackMode = signal<'direct' | 'HLS' | 'relay' | 'offline' | 'unsupported'>('direct');
 
   private readonly audio = new Audio();
   private hls: RadioHlsInstance | null = null;
+  private reported = false;
 
   constructor(private readonly browser: RadioBrowserService) {
     this.audio.preload = 'none';
     this.audio.volume = this.volume();
+    
     this.audio.addEventListener('playing', () => {
       this.loading.set(false);
       this.playing.set(true);
+      const station = this.currentStation();
+      if (station && !this.reported) {
+        this.reported = true;
+        void this.browser.reportPlayback(station.stationuuid, true);
+      }
     });
+
     this.audio.addEventListener('pause', () => this.playing.set(false));
+    
     this.audio.addEventListener('waiting', () => this.loading.set(true));
+    
     this.audio.addEventListener('error', () => {
       this.loading.set(false);
       this.playing.set(false);
-      this.error.set(mediaErrorMessage(this.audio.error));
+      
+      const err = this.audio.error;
+      if (err) {
+        if (err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+          this.playbackMode.set('unsupported');
+        } else {
+          this.playbackMode.set('offline');
+        }
+      } else {
+        this.playbackMode.set('offline');
+      }
+
+      this.error.set(mediaErrorMessage(err));
+
+      const station = this.currentStation();
+      if (station && !this.reported) {
+        this.reported = true;
+        void this.browser.reportPlayback(station.stationuuid, false);
+      }
     });
   }
 
@@ -47,21 +76,61 @@ export class RadioPlayerService {
     this.currentStation.set(station);
     this.error.set('');
     this.loading.set(true);
+    this.reported = false;
 
     try {
-      const resolved = await this.browser.resolveStreamUrl(station.url || station.streamUrl);
-      const candidates = [
-        { url: resolved.streamUrl, hls: resolved.hls },
-        ...(resolved.alternatives || []).map((alt) => ({
-          url: alt,
-          hls: alt.includes('.m3u8') || alt.includes('.m3u'),
-        })),
-      ];
+      const originalUrl = station.url || station.streamUrl;
+      let resolved;
+      try {
+        resolved = await this.browser.resolveStreamUrl(originalUrl);
+      } catch {
+        resolved = { streamUrl: originalUrl, alternatives: [], hls: station.hls };
+      }
+
+      const candidates: { url: string; hls: boolean; mode: 'direct' | 'HLS' | 'relay' }[] = [];
+
+      candidates.push({
+        url: resolved.streamUrl,
+        hls: resolved.hls,
+        mode: resolved.hls ? 'HLS' : 'direct',
+      });
+
+      if (resolved.alternatives) {
+        for (const alt of resolved.alternatives) {
+          candidates.push({
+            url: alt,
+            hls: alt.includes('.m3u8') || alt.includes('.m3u'),
+            mode: (alt.includes('.m3u8') || alt.includes('.m3u')) ? 'HLS' : 'direct',
+          });
+        }
+      }
+
+      if (station.alternativeUrls) {
+        for (const alt of station.alternativeUrls) {
+          if (!candidates.some((c) => c.url === alt)) {
+            candidates.push({
+              url: alt,
+              hls: alt.includes('.m3u8') || alt.includes('.m3u') || station.hls,
+              mode: (alt.includes('.m3u8') || alt.includes('.m3u')) ? 'HLS' : 'direct',
+            });
+          }
+        }
+      }
+
+      const uniqueUrls = Array.from(new Set(candidates.map((c) => c.url)));
+      for (const rawUrl of uniqueUrls) {
+        candidates.push({
+          url: `/api/radio/relay?url=${encodeURIComponent(rawUrl)}`,
+          hls: rawUrl.includes('.m3u8') || rawUrl.includes('.m3u') || station.hls,
+          mode: 'relay',
+        });
+      }
 
       let lastError: Error | null = null;
       for (const cand of candidates) {
         try {
           this.error.set('');
+          this.playbackMode.set(cand.mode);
           if (cand.hls) {
             await this.playHls(cand.url);
           } else {
@@ -79,6 +148,11 @@ export class RadioPlayerService {
     } catch (error) {
       this.loading.set(false);
       this.playing.set(false);
+      this.playbackMode.set('offline');
+      if (!this.reported) {
+        this.reported = true;
+        void this.browser.reportPlayback(station.stationuuid, false);
+      }
       this.error.set(
         error instanceof Error
           ? `Could not play this station: ${error.message}`
@@ -177,10 +251,6 @@ function loadHls(): Promise<RadioHlsConstructor | null> {
 
 function radioHlsGlobal(): RadioHlsConstructor | null {
   return (window as unknown as { Hls?: RadioHlsConstructor }).Hls ?? null;
-}
-
-function isHlsStation(station: RadioStation): boolean {
-  return station.hls || /\.m3u8(?:$|\?)/i.test(station.streamUrl);
 }
 
 function mediaErrorMessage(error: MediaError | null): string {

@@ -2,6 +2,11 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { getConfig } from '../config';
 import { DatabaseService } from '../database/database.service';
 import { validateRemoteUrl } from '../iptv/iptv-url';
+import { NormalizedStation, RadioSourceAdapter } from './sources/radio-source.interface';
+import { RadioBrowserAdapter } from './sources/radio-browser.adapter';
+import { AkashvaniAdapter } from './sources/akashvani.adapter';
+import { CuratedJsonAdapter } from './sources/curated-json.adapter';
+import { IcecastAdapter } from './sources/icecast.adapter';
 
 export interface RadioStationEntity {
   stationuuid: string;
@@ -21,12 +26,18 @@ export interface RadioStationEntity {
   lastcheckok: boolean;
   geo_lat: number;
   geo_long: number;
+  source: string;
+  sourceReferences: any[];
+  alternativeUrls: string[];
+  recentSuccess: number;
+  recentFailures: number;
   streamUrl: string;
   isHttps: boolean;
 }
 
 export interface NearbyStationEntity extends RadioStationEntity {
   distanceKm: number;
+  score?: number;
 }
 
 @Injectable()
@@ -38,6 +49,13 @@ export class RadioService implements OnModuleInit, OnModuleDestroy {
   >();
   private readonly CACHE_TTL = 3600 * 1000; // 1 hour
   private refreshInterval: NodeJS.Timeout | null = null;
+
+  private readonly adapters: RadioSourceAdapter[] = [
+    new CuratedJsonAdapter(),
+    new AkashvaniAdapter(),
+    new RadioBrowserAdapter(),
+    new IcecastAdapter(),
+  ];
 
   constructor(private readonly databaseService: DatabaseService) {}
 
@@ -79,82 +97,189 @@ export class RadioService implements OnModuleInit, OnModuleDestroy {
   }
 
   async refreshCache(): Promise<void> {
-    const servers = [
-      'https://de1.api.radio-browser.info',
-      'https://nl1.api.radio-browser.info',
-    ];
-    let lastError: unknown;
+    this.logger.log('Starting radio stations cache refresh across all adapters...');
+    let allFetched: NormalizedStation[] = [];
 
-    for (const server of servers) {
+    for (const adapter of this.adapters) {
       try {
-        this.logger.log(`Fetching radio stations from ${server}...`);
-        const url = `${server}/json/stations/search?has_geo_info=true&hidebroken=true&limit=25000`;
-        const response = await fetch(url, {
-          headers: { 'User-Agent': 'Mozilla/5.0 BDoom/1.0' },
-          signal: AbortSignal.timeout(15000),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Server returned HTTP ${response.status}`);
-        }
-
-        const data = (await response.json()) as any[];
-        const validStations = data.filter(
-          (s) =>
-            s.stationuuid &&
-            s.name?.trim() &&
-            Number.isFinite(s.geo_lat) &&
-            Number.isFinite(s.geo_long),
-        );
-
-        this.logger.log(`Caching ${validStations.length} valid stations in SQLite...`);
-
-        await this.databaseService.exec('BEGIN TRANSACTION');
-        try {
-          await this.databaseService.run('DELETE FROM radio_stations');
-          const insertSql = `
-            INSERT OR REPLACE INTO radio_stations (
-              stationuuid, name, url, url_resolved, homepage, favicon, 
-              country, countrycode, state, language, tags, codec, 
-              bitrate, hls, lastcheckok, geo_lat, geo_long
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `;
-          for (const s of validStations) {
-            await this.databaseService.run(insertSql, [
-              s.stationuuid,
-              s.name.trim(),
-              s.url ?? '',
-              s.url_resolved ?? '',
-              s.homepage ?? '',
-              s.favicon ?? '',
-              s.country ?? '',
-              s.countrycode ?? '',
-              s.state ?? '',
-              s.language ?? '',
-              s.tags ?? '',
-              s.codec ?? '',
-              Number(s.bitrate) || 0,
-              s.hls === 1 ? 1 : 0,
-              s.lastcheckok === 1 ? 1 : 0,
-              Number(s.geo_lat),
-              Number(s.geo_long),
-            ]);
-          }
-          await this.databaseService.exec('COMMIT');
-          this.logger.log('Radio stations cache update complete.');
-          return;
-        } catch (dbError) {
-          await this.databaseService.exec('ROLLBACK');
-          throw dbError;
-        }
+        const stations = await adapter.fetchStations();
+        allFetched = allFetched.concat(stations);
       } catch (err) {
-        this.logger.warn(
-          `Failed fetching from mirror ${server}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        lastError = err;
+        this.logger.error(`Adapter ${adapter.name} failed during cache refresh`, err);
       }
     }
-    throw lastError ?? new Error('No Radio Browser mirrors succeeded');
+
+    this.logger.log(`Fetched ${allFetched.length} raw stations. Deduplicating...`);
+    const uniqueStations = this.deduplicateAndMerge(allFetched);
+    this.logger.log(`Deduplicated to ${uniqueStations.length} unique stations. Caching in SQLite...`);
+
+    await this.databaseService.exec('BEGIN TRANSACTION');
+    try {
+      await this.databaseService.run('DELETE FROM radio_stations');
+      const insertSql = `
+        INSERT OR REPLACE INTO radio_stations (
+          stationuuid, name, url, url_resolved, homepage, favicon, 
+          country, countrycode, state, language, tags, codec, 
+          bitrate, hls, lastcheckok, geo_lat, geo_long, source,
+          source_references, alternative_urls, recent_success, recent_failures
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const s of uniqueStations) {
+        await this.databaseService.run(insertSql, [
+          s.stationuuid,
+          s.name,
+          s.url,
+          s.url_resolved,
+          s.homepage,
+          s.favicon,
+          s.country,
+          s.countrycode,
+          s.state,
+          s.language,
+          s.tags,
+          s.codec,
+          s.bitrate,
+          s.hls ? 1 : 0,
+          s.lastcheckok ? 1 : 0,
+          s.geo_lat,
+          s.geo_long,
+          s.source,
+          JSON.stringify(s.source_references),
+          JSON.stringify(s.alternative_urls),
+          s.recent_success,
+          s.recent_failures,
+        ]);
+      }
+      await this.databaseService.exec('COMMIT');
+      this.logger.log('Radio stations cache update complete.');
+    } catch (dbError) {
+      await this.databaseService.exec('ROLLBACK');
+      throw dbError;
+    }
+  }
+
+  private deduplicateAndMerge(stations: NormalizedStation[]): any[] {
+    const uniqueMap = new Map<string, any>();
+
+    for (const station of stations) {
+      const normUrl = this.normalizeUrl(station.url_resolved || station.url);
+      
+      let existing = uniqueMap.get(normUrl);
+
+      // 2. Lookup by source-specific ID
+      if (!existing) {
+        for (const item of uniqueMap.values()) {
+          const hasRef = item.source_references.some(
+            (ref: any) => ref.source === station.source && ref.id === station.sourceId
+          );
+          if (hasRef) {
+            existing = item;
+            break;
+          }
+        }
+      }
+
+      // 3. Lookup by name proximity
+      if (!existing) {
+        const normName = this.normalizeName(station.name);
+        for (const item of uniqueMap.values()) {
+          if (
+            item.country === station.country &&
+            this.normalizeName(item.name) === normName
+          ) {
+            const dist = haversineDistanceKm(
+              item.geo_lat,
+              item.geo_long,
+              station.geo_lat,
+              station.geo_long
+            );
+            if (dist < 5.0) {
+              existing = item;
+              break;
+            }
+          }
+        }
+      }
+
+      if (existing) {
+        // Merge metadata
+        // Keep best coordinates (favor non-zero)
+        if ((existing.geo_lat === 0 && existing.geo_long === 0) && (station.geo_lat !== 0 || station.geo_long !== 0)) {
+          existing.geo_lat = station.geo_lat;
+          existing.geo_long = station.geo_long;
+        }
+        // Favicon: keep best
+        if (!existing.favicon && station.favicon) {
+          existing.favicon = station.favicon;
+        }
+        // Retain alternative stream URLs
+        if (station.url_resolved && station.url_resolved !== existing.url_resolved) {
+          if (!existing.alternative_urls.includes(station.url_resolved)) {
+            existing.alternative_urls.push(station.url_resolved);
+          }
+        }
+        if (station.url && station.url !== existing.url) {
+          if (!existing.alternative_urls.includes(station.url)) {
+            existing.alternative_urls.push(station.url);
+          }
+        }
+        // Preserve source reference
+        const hasRef = existing.source_references.some(
+          (ref: any) => ref.source === station.source && ref.id === station.sourceId
+        );
+        if (!hasRef) {
+          existing.source_references.push({ source: station.source, id: station.sourceId });
+        }
+      } else {
+        const stationUuid = station.source === 'radio-browser' 
+          ? station.sourceId 
+          : `gen-${Math.random().toString(36).substring(2, 15)}`;
+        
+        uniqueMap.set(normUrl, {
+          stationuuid: stationUuid,
+          name: station.name,
+          url: station.url,
+          url_resolved: station.url_resolved,
+          homepage: station.homepage,
+          favicon: station.favicon,
+          country: station.country,
+          countrycode: station.countrycode,
+          state: station.state,
+          language: station.language,
+          tags: station.tags,
+          codec: station.codec,
+          bitrate: station.bitrate,
+          hls: station.hls,
+          lastcheckok: station.lastcheckok,
+          geo_lat: station.geo_lat,
+          geo_long: station.geo_long,
+          source: station.source,
+          source_references: [{ source: station.source, id: station.sourceId }],
+          alternative_urls: [],
+          recent_success: 0,
+          recent_failures: 0,
+        });
+      }
+    }
+
+    return Array.from(uniqueMap.values());
+  }
+
+  private normalizeUrl(urlStr: string): string {
+    try {
+      const url = new URL(urlStr.trim().toLowerCase());
+      let cleaned = url.host + url.pathname;
+      if (cleaned.endsWith('/')) {
+        cleaned = cleaned.slice(0, -1);
+      }
+      return cleaned;
+    } catch {
+      return urlStr.trim().toLowerCase();
+    }
+  }
+
+  private normalizeName(name: string): string {
+    return name.toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
   async getNearbyStations(
@@ -162,11 +287,62 @@ export class RadioService implements OnModuleInit, OnModuleDestroy {
     lng: number,
     radiusKm?: number,
     limit = 20,
+    nameQuery?: string,
+    sourceFilter?: string,
   ): Promise<{ stations: NearbyStationEntity[]; usedNearestFallback: boolean }> {
-    const stations = await this.databaseService.all<any>('SELECT * FROM radio_stations');
+    let sql = 'SELECT * FROM radio_stations';
+    const params: any[] = [];
+    const clauses: string[] = [];
+
+    if (nameQuery && nameQuery.trim()) {
+      clauses.push('name LIKE ?');
+      params.push(`%${nameQuery.trim()}%`);
+    }
+
+    if (sourceFilter && sourceFilter.trim()) {
+      clauses.push('source = ?');
+      params.push(sourceFilter.trim());
+    }
+
+    if (clauses.length > 0) {
+      sql += ' WHERE ' + clauses.join(' AND ');
+    }
+
+    const stations = await this.databaseService.all<any>(sql, params);
     const mapped: NearbyStationEntity[] = stations.map((s) => {
       const dist = haversineDistanceKm(lat, lng, s.geo_lat, s.geo_long);
       const streamUrl = s.url_resolved?.trim() || s.url?.trim() || '';
+
+      let sourceReferences = [];
+      let alternativeUrls = [];
+      try {
+        sourceReferences = JSON.parse(s.source_references);
+      } catch {}
+      try {
+        alternativeUrls = JSON.parse(s.alternative_urls);
+      } catch {}
+
+      // Calculate ranking score
+      let score = 0;
+      // 1. Distance penalty
+      score -= dist * 10;
+      // 2. HTTPS bonus
+      if (streamUrl.startsWith('https://')) {
+        score += 200;
+      }
+      // 3. Bitrate bonus
+      const bitrate = s.bitrate || 0;
+      score += (bitrate / 32) * 5;
+      // 4. Metadata completeness bonus
+      if (s.favicon) score += 20;
+      if (s.tags) score += 10;
+      if (s.language) score += 10;
+      if (s.state) score += 10;
+      // 5. Playback reliability bonus
+      const success = s.recent_success || 0;
+      const failures = s.recent_failures || 0;
+      score += (success - failures) * 50;
+
       return {
         stationuuid: s.stationuuid,
         name: s.name,
@@ -185,33 +361,73 @@ export class RadioService implements OnModuleInit, OnModuleDestroy {
         lastcheckok: s.lastcheckok === 1,
         geo_lat: s.geo_lat,
         geo_long: s.geo_long,
+        source: s.source,
+        sourceReferences,
+        alternativeUrls,
+        recentSuccess: s.recent_success,
+        recentFailures: s.recent_failures,
         streamUrl,
         isHttps: streamUrl.startsWith('https://'),
         distanceKm: dist,
+        score,
       };
     });
 
-    mapped.sort((a, b) => a.distanceKm - b.distanceKm);
+    mapped.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
-    if (radiusKm === undefined || isNaN(radiusKm)) {
-      return {
-        stations: mapped.slice(0, limit),
-        usedNearestFallback: false,
-      };
+    let candidates = mapped;
+    let usedNearestFallback = false;
+
+    if (radiusKm !== undefined && !isNaN(radiusKm)) {
+      const filtered = mapped.filter((s) => s.distanceKm <= radiusKm);
+      if (filtered.length > 0) {
+        candidates = filtered;
+      } else {
+        usedNearestFallback = true;
+      }
     }
 
-    const filtered = mapped.filter((s) => s.distanceKm <= radiusKm);
-    if (filtered.length > 0) {
-      return {
-        stations: filtered.slice(0, limit),
-        usedNearestFallback: false,
-      };
+    // Pick top candidates avoiding single source dominance
+    const finalPicked: NearbyStationEntity[] = [];
+    const sourceCounts: Record<string, number> = {};
+
+    for (const station of candidates) {
+      if (finalPicked.length >= limit) {
+        break;
+      }
+      const source = station.source;
+      const count = sourceCounts[source] || 0;
+
+      const hasOtherSourcesLeft = candidates.some(
+        (s) => !finalPicked.includes(s) && s.source !== source,
+      );
+      // Cap a single source at 50% of the limit if other sources are available
+      if (count >= limit / 2 && hasOtherSourcesLeft) {
+        continue;
+      }
+
+      finalPicked.push(station);
+      sourceCounts[source] = count + 1;
     }
 
     return {
-      stations: mapped.slice(0, limit),
-      usedNearestFallback: true,
+      stations: finalPicked,
+      usedNearestFallback,
     };
+  }
+
+  async reportPlaybackStatus(stationuuid: string, success: boolean): Promise<void> {
+    if (success) {
+      await this.databaseService.run(
+        'UPDATE radio_stations SET recent_success = recent_success + 1 WHERE stationuuid = ?',
+        [stationuuid],
+      );
+    } else {
+      await this.databaseService.run(
+        'UPDATE radio_stations SET recent_failures = recent_failures + 1 WHERE stationuuid = ?',
+        [stationuuid],
+      );
+    }
   }
 
   async resolveUrl(

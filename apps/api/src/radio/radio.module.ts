@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { DatabaseModule } from '../database/database.module';
 import { RadioController } from './radio.controller';
+import { RadioRelayController } from './radio-relay.controller';
 import { RadioService } from './radio.service';
 
 @Module({
   imports: [DatabaseModule, AuthModule],
-  controllers: [RadioController],
+  controllers: [RadioController, RadioRelayController],
   providers: [RadioService],
   exports: [RadioService],
 })

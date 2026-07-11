@@ -7,6 +7,8 @@ export interface AppConfig {
   dbPath: string;
   cookieSecure: boolean;
   sessionDays: number;
+  radioRelayEnabled: boolean;
+  radioRelayMaxListeners: number;
 }
 
 export function getConfig(): AppConfig {
@@ -26,5 +28,7 @@ export function getConfig(): AppConfig {
       (process.env.COOKIE_SECURE ?? (nodeEnv === 'production' ? 'true' : 'false')) ===
       'true',
     sessionDays: Number(process.env.SESSION_DAYS ?? 7),
+    radioRelayEnabled: (process.env.RADIO_RELAY_ENABLED ?? 'true') === 'true',
+    radioRelayMaxListeners: Number(process.env.RADIO_RELAY_MAX_LISTENERS ?? 50),
   };
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, Post, Body, UseGuards } from '@nestjs/common';
 import { SessionGuard } from '../auth/session.guard';
 import { RadioService } from './radio.service';
 
@@ -13,6 +13,8 @@ export class RadioController {
     @Query('lng') lngStr: string,
     @Query('radius') radiusStr?: string,
     @Query('limit') limitStr?: string,
+    @Query('name') name?: string,
+    @Query('source') source?: string,
   ) {
     const lat = parseFloat(latStr);
     const lng = parseFloat(lngStr);
@@ -23,7 +25,7 @@ export class RadioController {
     const radius = radiusStr ? parseFloat(radiusStr) : undefined;
     const limit = limitStr ? parseInt(limitStr, 10) : 20;
 
-    return this.radioService.getNearbyStations(lat, lng, radius, limit);
+    return this.radioService.getNearbyStations(lat, lng, radius, limit, name, source);
   }
 
   @Get('resolve')
@@ -38,5 +40,17 @@ export class RadioController {
         error instanceof Error ? error.message : 'Could not resolve stream URL.',
       );
     }
+  }
+
+  @Post('report')
+  async report(
+    @Body('stationuuid') stationuuid: string,
+    @Body('success') success: boolean,
+  ) {
+    if (!stationuuid) {
+      throw new BadRequestException('Missing station UUID.');
+    }
+    await this.radioService.reportPlaybackStatus(stationuuid, success);
+    return { success: true };
   }
 }

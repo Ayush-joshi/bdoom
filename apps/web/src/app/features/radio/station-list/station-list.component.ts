@@ -26,6 +26,7 @@ import { NearbyStation } from '../models/radio-station.model';
             <small>
               {{ station.distanceKm.toFixed(0) }} km
               @if (station.language) { · {{ station.language }} }
+              · <span class="station-source">{{ formatSource(station.source) }}</span>
             </small>
             <small>
               {{ station.tags || 'General' }}
@@ -54,5 +55,14 @@ export class StationListComponent {
 
   handleLogoError(station: NearbyStation): void {
     station.favicon = '';
+  }
+
+  formatSource(source: string): string {
+    if (!source) return '';
+    if (source === 'curated') return 'Official Broadcasters';
+    if (source === 'akashvani') return 'Akashvani';
+    if (source === 'icecast') return 'Icecast';
+    if (source === 'radio-browser') return 'Radio Browser';
+    return source;
   }
 }

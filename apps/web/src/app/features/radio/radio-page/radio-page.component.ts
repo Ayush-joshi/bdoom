@@ -62,6 +62,26 @@ import { StationListComponent } from '../station-list/station-list.component';
               Click anywhere on the map to find nearby stations
             }
           </div>
+          <div class="radio-search-controls">
+            <input
+              type="text"
+              [ngModel]="searchTerm()"
+              (ngModelChange)="changeSearchTerm($event)"
+              placeholder="Search by station name..."
+              aria-label="Search by station name"
+            />
+            <select
+              [ngModel]="sourceFilter()"
+              (ngModelChange)="changeSourceFilter($event)"
+              aria-label="Filter by source"
+            >
+              <option value="">All Sources</option>
+              <option value="curated">Official Broadcasters</option>
+              <option value="akashvani">Akashvani</option>
+              <option value="icecast">Icecast</option>
+              <option value="radio-browser">Radio Browser</option>
+            </select>
+          </div>
         </div>
 
         <aside class="radio-results">
@@ -115,6 +135,8 @@ export class RadioPageComponent implements OnDestroy {
   readonly radius = signal<RadioRadius>(100);
   readonly selectedLocation = signal<SelectedLocation | null>(null);
   readonly usedNearestFallback = signal(false);
+  readonly searchTerm = signal('');
+  readonly sourceFilter = signal('');
   readonly resultTitle = computed(() => {
     if (!this.selectedLocation()) {
       return 'Pick a location';
@@ -181,7 +203,13 @@ export class RadioPageComponent implements OnDestroy {
     this.error.set('');
 
     this.searchSubscription = from(
-      this.browser.getNearbyStations(location.latitude, location.longitude, undefined)
+      this.browser.getNearbyStations(
+        location.latitude,
+        location.longitude,
+        undefined,
+        this.searchTerm(),
+        this.sourceFilter(),
+      )
     ).subscribe({
       next: (result) => {
         this.nearbyStations.set(result.stations);
@@ -226,7 +254,13 @@ export class RadioPageComponent implements OnDestroy {
     this.error.set('');
 
     this.searchSubscription = from(
-      this.browser.getNearbyStations(location.latitude, location.longitude, this.radius())
+      this.browser.getNearbyStations(
+        location.latitude,
+        location.longitude,
+        this.radius(),
+        this.searchTerm(),
+        this.sourceFilter(),
+      )
     ).subscribe({
       next: (result) => {
         this.nearbyStations.set(result.stations);
@@ -254,5 +288,19 @@ export class RadioPageComponent implements OnDestroy {
     if (zoom <= 7) return 50;
     if (zoom <= 8) return 30;
     return 10;
+  }
+
+  changeSearchTerm(term: string): void {
+    this.searchTerm.set(term);
+    if (this.selectedLocation()) {
+      this.search(true);
+    }
+  }
+
+  changeSourceFilter(source: string): void {
+    this.sourceFilter.set(source);
+    if (this.selectedLocation()) {
+      this.search(false);
+    }
   }
 }

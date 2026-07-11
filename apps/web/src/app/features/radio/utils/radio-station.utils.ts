@@ -110,6 +110,7 @@ export function normalizeStation(source: RawRadioStation): RadioStation | null {
     geo_long: Number(source.geo_long),
     streamUrl,
     isHttps: streamUrl.startsWith('https://'),
+    source: (source as any).source ?? 'radio-browser',
   };
 }
 

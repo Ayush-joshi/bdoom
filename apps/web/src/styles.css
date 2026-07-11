@@ -839,6 +839,12 @@ app-station-list {
   font-style: normal;
 }
 
+.station-source {
+  color: #38bdf8;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
 .radio-station button {
   min-height: 36px;
   padding: 0 12px;
@@ -884,6 +890,19 @@ app-station-list {
 
 .radio-player-station small {
   color: #94a3b8;
+}
+
+.playback-mode-badge {
+  background: rgb(20 184 166 / 20%);
+  border: 1px solid rgb(20 184 166 / 40%);
+  border-radius: 4px;
+  color: #2dd4bf;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 1px 4px;
+  text-transform: uppercase;
+  display: inline-block;
+  margin-left: 4px;
 }
 
 .radio-live-dot {
@@ -1132,3 +1151,45 @@ app-station-list {
     font-size: clamp(2rem, 14vw, 3.2rem);
   }
 }
+
+.radio-search-controls {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.radio-search-controls input,
+.radio-search-controls select {
+  background: rgb(15 23 42 / 60%);
+  border: 1px solid rgb(148 163 184 / 20%);
+  color: #f8fafc;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  border-radius: 4px;
+  outline: none;
+  font-family: inherit;
+}
+
+.radio-search-controls input {
+  flex: 1;
+}
+
+.radio-search-controls select {
+  min-width: 180px;
+}
+
+.radio-search-controls input:focus,
+.radio-search-controls select:focus {
+  border-color: rgb(45 212 191 / 60%);
+}
+
+@media (max-width: 600px) {
+  .radio-search-controls {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .radio-search-controls select {
+    width: 100%;
+  }
+}
+

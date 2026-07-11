@@ -18,6 +18,11 @@ export interface RadioStation {
   geo_long: number;
   streamUrl: string;
   isHttps: boolean;
+  source: string;
+  sourceReferences?: { source: string; id: string }[];
+  alternativeUrls?: string[];
+  recentSuccess?: number;
+  recentFailures?: number;
 }
 
 export interface NearbyStation extends RadioStation {
