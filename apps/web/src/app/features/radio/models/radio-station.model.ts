@@ -29,4 +29,4 @@ export interface SelectedLocation {
   longitude: number;
 }
 
-export type RadioRadius = 25 | 50 | 100 | 250 | 'nearest';
+export type RadioRadius = number;

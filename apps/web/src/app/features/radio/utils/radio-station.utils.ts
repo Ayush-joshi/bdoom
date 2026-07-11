@@ -44,7 +44,7 @@ export function haversineDistanceKm(
 export function stationsNearLocation(
   stations: RadioStation[],
   location: SelectedLocation,
-  radius: RadioRadius,
+  radius?: number,
   limit = 20,
 ): { stations: NearbyStation[]; usedNearestFallback: boolean } {
   const sorted = stations
@@ -57,7 +57,7 @@ export function stationsNearLocation(
     }))
     .sort((left, right) => left.distanceKm - right.distanceKm);
 
-  if (radius === 'nearest') {
+  if (radius === undefined || isNaN(radius)) {
     return { stations: sorted.slice(0, limit), usedNearestFallback: false };
   }
 

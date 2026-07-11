@@ -1,42 +1,41 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { environment } from '../../../../environments/environment';
-import { RadioStation } from '../models/radio-station.model';
-import { normalizeStation, RawRadioStation } from '../utils/radio-station.utils';
+import { NearbyStation } from '../models/radio-station.model';
 
 @Injectable({ providedIn: 'root' })
 export class RadioBrowserService {
-  private stationCache?: Promise<RadioStation[]>;
-
   constructor(private readonly http: HttpClient) {}
 
-  loadStations(): Promise<RadioStation[]> {
-    this.stationCache ??= this.fetchFromAvailableServer().catch((error) => {
-      this.stationCache = undefined;
-      throw error;
-    });
-    return this.stationCache;
+  async getNearbyStations(
+    latitude: number,
+    longitude: number,
+    radius?: number,
+  ): Promise<{ stations: NearbyStation[]; usedNearestFallback: boolean }> {
+    let params = new HttpParams()
+      .set('lat', latitude.toString())
+      .set('lng', longitude.toString());
+    if (radius !== undefined) {
+      params = params.set('radius', radius.toString());
+    }
+
+    return firstValueFrom(
+      this.http.get<{ stations: NearbyStation[]; usedNearestFallback: boolean }>(
+        '/api/radio/nearby',
+        { params },
+      ),
+    );
   }
 
-  private async fetchFromAvailableServer(): Promise<RadioStation[]> {
-    let lastError: unknown;
-    for (const server of environment.radioBrowserServers) {
-      try {
-        const params = new HttpParams()
-          .set('has_geo_info', 'true')
-          .set('hidebroken', 'true')
-          .set('order', 'clickcount')
-          .set('reverse', 'true')
-          .set('limit', environment.radioStationFetchLimit);
-        const response = await firstValueFrom(
-          this.http.get<RawRadioStation[]>(`${server}/json/stations/search`, { params }),
-        );
-        return response.map(normalizeStation).filter((station): station is RadioStation => !!station);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError ?? new Error('No Radio Browser server was available.');
+  async resolveStreamUrl(
+    url: string,
+  ): Promise<{ streamUrl: string; alternatives: string[]; hls: boolean }> {
+    const params = new HttpParams().set('url', url);
+    return firstValueFrom(
+      this.http.get<{ streamUrl: string; alternatives: string[]; hls: boolean }>(
+        '/api/radio/resolve',
+        { params },
+      ),
+    );
   }
 }

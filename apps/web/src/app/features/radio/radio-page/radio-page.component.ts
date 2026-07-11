@@ -1,13 +1,13 @@
 import { Component, OnDestroy, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { Subscription, from } from 'rxjs';
 import { NearbyStation, RadioRadius, SelectedLocation } from '../models/radio-station.model';
 import { RadioMapComponent } from '../radio-map/radio-map.component';
 import { RadioPlayerComponent } from '../radio-player/radio-player.component';
 import { RadioBrowserService } from '../services/radio-browser.service';
 import { RadioPlayerService } from '../services/radio-player.service';
 import { StationListComponent } from '../station-list/station-list.component';
-import { stationsNearLocation } from '../utils/radio-station.utils';
 
 @Component({
   selector: 'app-radio-page',
@@ -21,21 +21,40 @@ import { stationsNearLocation } from '../utils/radio-station.utils';
           <p class="eyebrow">BDoom IP Radio</p>
           <h1>World Radio Map</h1>
         </div>
-        <label class="radio-radius">
-          Search radius
-          <select [ngModel]="radius()" (ngModelChange)="changeRadius($event)">
-            <option [ngValue]="25">25 km</option>
-            <option [ngValue]="50">50 km</option>
-            <option [ngValue]="100">100 km</option>
-            <option [ngValue]="250">250 km</option>
-            <option value="nearest">Nearest available</option>
-          </select>
-        </label>
+        <div class="radio-radius-control">
+          <label>Search radius</label>
+          <div class="radius-inputs">
+            <input
+              type="range"
+              min="10"
+              max="1000"
+              step="10"
+              [ngModel]="radius()"
+              (ngModelChange)="changeRadius($event, true)"
+              aria-label="Search radius slider"
+            />
+            <input
+              type="number"
+              min="10"
+              max="1000"
+              step="1"
+              [ngModel]="radius()"
+              (ngModelChange)="changeRadius($event, true)"
+              aria-label="Search radius numeric value"
+              class="radius-number-input"
+            />
+            <span class="radius-unit">km</span>
+          </div>
+        </div>
       </header>
 
       <section class="radio-workspace">
         <div class="radio-map-panel">
-          <app-radio-map (locationSelected)="selectLocation($event)" />
+          <app-radio-map
+            [location]="selectedLocation()"
+            [radius]="radius()"
+            (locationSelected)="selectLocation($event)"
+          />
           <div class="radio-map-hint">
             @if (selectedLocation(); as location) {
               {{ location.latitude.toFixed(3) }}, {{ location.longitude.toFixed(3) }}
@@ -56,20 +75,31 @@ import { stationsNearLocation } from '../utils/radio-station.utils';
             }
           </div>
 
-          @if (loading()) {
-            <p class="radio-state">Finding stations around this point...</p>
-          } @else if (error()) {
-            <p class="radio-state error">{{ error() }}</p>
-            <button type="button" class="secondary-button" (click)="retry()">Try again</button>
-          } @else if (!selectedLocation()) {
-            <p class="radio-state">Choose a place on the map to begin.</p>
-          } @else if (nearbyStations().length === 0) {
-            <p class="radio-state">No playable stations were found for this location.</p>
-          } @else {
-            @if (usedNearestFallback()) {
-              <p class="radio-fallback">No stations were found inside this radius. Showing the nearest available.</p>
+          @switch (state()) {
+            @case ('idle') {
+              <p class="radio-state">Choose a place on the map to begin.</p>
             }
-            <app-station-list [stations]="nearbyStations()" (play)="playStation($event)" />
+            @case ('loading') {
+              <p class="radio-state">Finding stations around this point...</p>
+            }
+            @case ('error') {
+              <p class="radio-state error">{{ error() }}</p>
+              <button type="button" class="secondary-button" (click)="retry()">Try again</button>
+            }
+            @case ('empty') {
+              <div class="radio-state empty-state">
+                <p>No playable stations were found inside this radius.</p>
+                <button type="button" class="secondary-button" (click)="expandToNearest()">
+                  Show nearest available stations
+                </button>
+              </div>
+            }
+            @case ('success') {
+              @if (usedNearestFallback()) {
+                <p class="radio-fallback">No stations were found inside this radius. Showing the nearest available.</p>
+              }
+              <app-station-list [stations]="nearbyStations()" (play)="playStation($event)" />
+            }
           }
         </aside>
       </section>
@@ -79,8 +109,8 @@ import { stationsNearLocation } from '../utils/radio-station.utils';
   `,
 })
 export class RadioPageComponent implements OnDestroy {
+  readonly state = signal<'idle' | 'loading' | 'success' | 'empty' | 'error'>('idle');
   readonly error = signal('');
-  readonly loading = signal(false);
   readonly nearbyStations = signal<NearbyStation[]>([]);
   readonly radius = signal<RadioRadius>(100);
   readonly selectedLocation = signal<SelectedLocation | null>(null);
@@ -89,9 +119,12 @@ export class RadioPageComponent implements OnDestroy {
     if (!this.selectedLocation()) {
       return 'Pick a location';
     }
-    return this.radius() === 'nearest' ? 'Closest signals' : `Within ${this.radius()} km`;
+    return `Within ${this.radius()} km`;
   });
-  private searchRequestId = 0;
+
+  private isManualRadius = false;
+  private debounceTimeout: any;
+  private searchSubscription?: Subscription;
 
   constructor(
     private readonly browser: RadioBrowserService,
@@ -99,54 +132,127 @@ export class RadioPageComponent implements OnDestroy {
   ) {}
 
   ngOnDestroy(): void {
+    if (this.debounceTimeout) {
+      clearTimeout(this.debounceTimeout);
+    }
+    this.searchSubscription?.unsubscribe();
     this.player.stop();
   }
 
-  selectLocation(location: SelectedLocation): void {
-    this.selectedLocation.set(location);
-    void this.search();
+  selectLocation(event: { location: SelectedLocation; zoom: number }): void {
+    this.selectedLocation.set(event.location);
+    if (!this.isManualRadius) {
+      const initRadius = this.zoomToRadius(event.zoom);
+      this.radius.set(initRadius);
+    }
+    this.search(false);
   }
 
-  changeRadius(radius: RadioRadius): void {
-    this.radius.set(radius);
+  changeRadius(newRadius: number, manual: boolean): void {
+    if (manual) {
+      this.isManualRadius = true;
+    }
+    const val = Math.min(1000, Math.max(10, Number(newRadius) || 10));
+    this.radius.set(val);
     if (this.selectedLocation()) {
-      void this.search();
+      this.search(true);
     }
   }
 
   retry(): void {
-    void this.search();
+    this.search(false);
   }
 
   playStation(station: NearbyStation): void {
     void this.player.play(station);
   }
 
-  private async search(): Promise<void> {
+  expandToNearest(): void {
     const location = this.selectedLocation();
     if (!location) {
       return;
     }
-    const requestId = ++this.searchRequestId;
-    this.loading.set(true);
+
+    if (this.searchSubscription) {
+      this.searchSubscription.unsubscribe();
+    }
+
+    this.state.set('loading');
     this.error.set('');
-    try {
-      const stations = await this.browser.loadStations();
-      const result = stationsNearLocation(stations, location, this.radius());
-      if (requestId !== this.searchRequestId) {
-        return;
-      }
-      this.nearbyStations.set(result.stations);
-      this.usedNearestFallback.set(result.usedNearestFallback);
-    } catch {
-      if (requestId === this.searchRequestId) {
+
+    this.searchSubscription = from(
+      this.browser.getNearbyStations(location.latitude, location.longitude, undefined)
+    ).subscribe({
+      next: (result) => {
+        this.nearbyStations.set(result.stations);
+        this.usedNearestFallback.set(true);
+        if (result.stations.length === 0) {
+          this.state.set('empty');
+        } else {
+          this.state.set('success');
+        }
+      },
+      error: (err) => {
         this.nearbyStations.set([]);
         this.error.set('Radio Browser could not be reached. Check your connection and try again.');
-      }
-    } finally {
-      if (requestId === this.searchRequestId) {
-        this.loading.set(false);
-      }
+        this.state.set('error');
+      },
+    });
+  }
+
+  private search(debounce: boolean): void {
+    if (this.debounceTimeout) {
+      clearTimeout(this.debounceTimeout);
     }
+
+    if (debounce) {
+      this.debounceTimeout = setTimeout(() => this.executeSearch(), 300);
+    } else {
+      this.executeSearch();
+    }
+  }
+
+  private executeSearch(): void {
+    const location = this.selectedLocation();
+    if (!location) {
+      return;
+    }
+
+    if (this.searchSubscription) {
+      this.searchSubscription.unsubscribe();
+    }
+
+    this.state.set('loading');
+    this.error.set('');
+
+    this.searchSubscription = from(
+      this.browser.getNearbyStations(location.latitude, location.longitude, this.radius())
+    ).subscribe({
+      next: (result) => {
+        this.nearbyStations.set(result.stations);
+        this.usedNearestFallback.set(result.usedNearestFallback);
+        if (result.stations.length === 0) {
+          this.state.set('empty');
+        } else {
+          this.state.set('success');
+        }
+      },
+      error: (err) => {
+        this.nearbyStations.set([]);
+        this.error.set('Radio Browser could not be reached. Check your connection and try again.');
+        this.state.set('error');
+      },
+    });
+  }
+
+  private zoomToRadius(zoom: number): number {
+    if (zoom <= 2) return 1000;
+    if (zoom <= 3) return 500;
+    if (zoom <= 4) return 250;
+    if (zoom <= 5) return 150;
+    if (zoom <= 6) return 100;
+    if (zoom <= 7) return 50;
+    if (zoom <= 8) return 30;
+    return 10;
   }
 }

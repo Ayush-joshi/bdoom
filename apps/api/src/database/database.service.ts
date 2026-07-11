@@ -92,6 +92,26 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
       CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(tokenHash);
       CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(userId);
+
+      CREATE TABLE IF NOT EXISTS radio_stations (
+        stationuuid TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        url_resolved TEXT NOT NULL,
+        homepage TEXT,
+        favicon TEXT,
+        country TEXT,
+        countrycode TEXT,
+        state TEXT,
+        language TEXT,
+        tags TEXT,
+        codec TEXT,
+        bitrate INTEGER,
+        hls INTEGER,
+        lastcheckok INTEGER,
+        geo_lat REAL NOT NULL,
+        geo_long REAL NOT NULL
+      );
     `);
   }
 }

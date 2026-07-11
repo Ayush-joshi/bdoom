@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { RadioStation } from '../models/radio-station.model';
+import { RadioBrowserService } from './radio-browser.service';
 
 type RadioHlsInstance = {
   attachMedia(media: HTMLMediaElement): void;
@@ -25,7 +26,7 @@ export class RadioPlayerService {
   private readonly audio = new Audio();
   private hls: RadioHlsInstance | null = null;
 
-  constructor() {
+  constructor(private readonly browser: RadioBrowserService) {
     this.audio.preload = 'none';
     this.audio.volume = this.volume();
     this.audio.addEventListener('playing', () => {
@@ -48,12 +49,33 @@ export class RadioPlayerService {
     this.loading.set(true);
 
     try {
-      if (isHlsStation(station)) {
-        await this.playHls(station.streamUrl);
-      } else {
-        this.audio.src = station.streamUrl;
-        await this.audio.play();
+      const resolved = await this.browser.resolveStreamUrl(station.url || station.streamUrl);
+      const candidates = [
+        { url: resolved.streamUrl, hls: resolved.hls },
+        ...(resolved.alternatives || []).map((alt) => ({
+          url: alt,
+          hls: alt.includes('.m3u8') || alt.includes('.m3u'),
+        })),
+      ];
+
+      let lastError: Error | null = null;
+      for (const cand of candidates) {
+        try {
+          this.error.set('');
+          if (cand.hls) {
+            await this.playHls(cand.url);
+          } else {
+            this.audio.src = cand.url;
+            await this.audio.play();
+          }
+          return;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          this.stopMedia();
+        }
       }
+
+      throw lastError || new Error('All stream candidates failed to play.');
     } catch (error) {
       this.loading.set(false);
       this.playing.set(false);
