@@ -75,6 +75,62 @@ import { StationListComponent } from '../station-list/station-list.component';
         </div>
       </header>
 
+      <div class="radio-controls">
+        <label class="search-field">
+          Search Station
+          <input
+            name="globalSearch"
+            autocomplete="off"
+            placeholder="Search by station name, category/tag, or location..."
+            [ngModel]="globalQuery()"
+            (ngModelChange)="onGlobalQueryChange($event)"
+            (keydown.escape)="globalQuery.set('')"
+            role="combobox"
+            [attr.aria-expanded]="!!globalQuery().trim()"
+          />
+          @if (globalQuery().trim()) {
+            <div class="search-results" role="list" aria-label="Radio station search results">
+              @for (station of searchSuggestions(); track station.stationuuid) {
+                <button type="button" (click)="selectSearchResult(station)">
+                  <span class="search-result-logo">
+                    @if (station.favicon) {
+                      <img [src]="station.favicon" [alt]="" loading="lazy" />
+                    } @else {
+                      {{ station.name.slice(0, 1) }}
+                    }
+                  </span>
+                  <span>
+                    <strong>{{ station.name }}</strong>
+                    <small>
+                      {{ station.source }}
+                      @if (station.country) { - {{ station.country }} }
+                      @if (station.tags) { ({{ station.tags }}) }
+                    </small>
+                  </span>
+                </button>
+              } @empty {
+                <p>No matching stations</p>
+              }
+            </div>
+          }
+        </label>
+
+        <label style="min-width: 220px;">
+          Filter by Source
+          <select
+            name="globalSource"
+            [ngModel]="globalSource()"
+            (ngModelChange)="onGlobalSourceChange($event)"
+          >
+            <option value="">All Sources</option>
+            <option value="curated">Official Broadcasters</option>
+            <option value="akashvani">Akashvani</option>
+            <option value="icecast">Icecast</option>
+            <option value="radio-browser">Radio Browser</option>
+          </select>
+        </label>
+      </div>
+
       <section class="radio-workspace">
         <div class="radio-map-panel">
           <app-radio-map
@@ -88,26 +144,6 @@ import { StationListComponent } from '../station-list/station-list.component';
             } @else {
               Click anywhere on the map to find nearby stations
             }
-          </div>
-          <div class="radio-search-controls">
-            <input
-              type="text"
-              [ngModel]="searchTerm()"
-              (ngModelChange)="changeSearchTerm($event)"
-              placeholder="Search by station name..."
-              aria-label="Search by station name"
-            />
-            <select
-              [ngModel]="sourceFilter()"
-              (ngModelChange)="changeSourceFilter($event)"
-              aria-label="Filter by source"
-            >
-              <option value="">All Sources</option>
-              <option value="curated">Official Broadcasters</option>
-              <option value="akashvani">Akashvani</option>
-              <option value="icecast">Icecast</option>
-              <option value="radio-browser">Radio Browser</option>
-            </select>
           </div>
         </div>
 
@@ -165,6 +201,11 @@ export class RadioPageComponent implements OnDestroy {
   readonly usedNearestFallback = signal(false);
   readonly searchTerm = signal('');
   readonly sourceFilter = signal('');
+  readonly globalQuery = signal('');
+  readonly globalSource = signal('');
+  readonly globalSearchResults = signal<NearbyStation[]>([]);
+  readonly searchSuggestions = computed(() => this.globalSearchResults().slice(0, 8));
+
   readonly resultTitle = computed(() => {
     if (!this.selectedLocation()) {
       return 'Pick a location';
@@ -174,6 +215,7 @@ export class RadioPageComponent implements OnDestroy {
 
   private isManualRadius = false;
   private debounceTimeout: any;
+  private globalSearchTimeout: any;
   private searchSubscription?: Subscription;
 
   constructor(
@@ -184,6 +226,9 @@ export class RadioPageComponent implements OnDestroy {
   ngOnDestroy(): void {
     if (this.debounceTimeout) {
       clearTimeout(this.debounceTimeout);
+    }
+    if (this.globalSearchTimeout) {
+      clearTimeout(this.globalSearchTimeout);
     }
     this.searchSubscription?.unsubscribe();
     this.player.stop();
@@ -339,6 +384,89 @@ export class RadioPageComponent implements OnDestroy {
     this.limit.set(val);
     if (this.selectedLocation()) {
       this.search(true);
+    }
+  }
+
+  onGlobalQueryChange(query: string): void {
+    this.globalQuery.set(query);
+    if (this.globalSearchTimeout) {
+      clearTimeout(this.globalSearchTimeout);
+    }
+    if (!query.trim()) {
+      this.globalSearchResults.set([]);
+      return;
+    }
+    this.globalSearchTimeout = setTimeout(() => this.executeGlobalSearch(), 300);
+  }
+
+  onGlobalSourceChange(source: string): void {
+    this.globalSource.set(source);
+    if (this.globalQuery().trim()) {
+      this.executeGlobalSearch();
+    }
+  }
+
+  private executeGlobalSearch(): void {
+    const query = this.globalQuery().trim();
+    if (!query) {
+      this.globalSearchResults.set([]);
+      return;
+    }
+    void this.browser.searchStations(query, this.globalSource() || undefined, 30)
+      .then((stations) => {
+        this.globalSearchResults.set(stations);
+      })
+      .catch(() => {
+        this.globalSearchResults.set([]);
+      });
+  }
+
+  selectSearchResult(station: NearbyStation): void {
+    this.globalQuery.set('');
+    this.globalSearchResults.set([]);
+
+    if (station.geo_lat !== 0 || station.geo_long !== 0) {
+      const targetLoc = { latitude: station.geo_lat, longitude: station.geo_long };
+      this.selectedLocation.set(targetLoc);
+
+      if (this.searchSubscription) {
+        this.searchSubscription.unsubscribe();
+      }
+
+      this.state.set('loading');
+      this.error.set('');
+
+      this.searchSubscription = from(
+        this.browser.getNearbyStations(
+          station.geo_lat,
+          station.geo_long,
+          this.radius(),
+          this.searchTerm(),
+          this.sourceFilter(),
+          this.limit(),
+        )
+      ).subscribe({
+        next: (result) => {
+          let list = [...result.stations];
+          const index = list.findIndex(s => s.stationuuid === station.stationuuid);
+          if (index !== -1) {
+            list.splice(index, 1);
+          }
+          const stationCopy = { ...station, distanceKm: 0 };
+          list.unshift(stationCopy);
+
+          this.nearbyStations.set(list);
+          this.usedNearestFallback.set(result.usedNearestFallback);
+          this.state.set('success');
+        },
+        error: (err) => {
+          this.nearbyStations.set([station]);
+          this.state.set('success');
+        },
+      });
+    } else {
+      this.nearbyStations.set([station]);
+      this.state.set('success');
     }
   }
 }

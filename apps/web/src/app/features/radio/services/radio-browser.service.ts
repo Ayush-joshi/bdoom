@@ -39,6 +39,24 @@ export class RadioBrowserService {
     );
   }
 
+  async searchStations(
+    query: string,
+    source?: string,
+    limit?: number,
+  ): Promise<NearbyStation[]> {
+    let params = new HttpParams().set('q', query);
+    if (source) {
+      params = params.set('source', source);
+    }
+    if (limit !== undefined) {
+      params = params.set('limit', limit.toString());
+    }
+
+    return firstValueFrom(
+      this.http.get<NearbyStation[]>('/api/radio/search', { params }),
+    );
+  }
+
   async resolveStreamUrl(
     url: string,
   ): Promise<{ streamUrl: string; alternatives: string[]; hls: boolean }> {

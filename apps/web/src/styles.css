@@ -676,7 +676,55 @@ select {
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1.65fr) minmax(340px, 0.8fr);
-  min-height: 650px;
+  height: 650px;
+}
+
+.radio-controls {
+  display: flex;
+  gap: 16px;
+  align-items: end;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.radio-controls .search-field {
+  flex: 1;
+}
+
+.radio-controls label {
+  display: grid;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.radio-controls input,
+.radio-controls select {
+  background: rgb(15 23 42 / 60%);
+  border: 1px solid rgb(148 163 184 / 20%);
+  color: #f8fafc;
+  font-size: 0.85rem;
+  padding: 10px 14px;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  width: 100%;
+}
+
+.radio-controls input:focus,
+.radio-controls select:focus {
+  border-color: rgb(45 212 191 / 60%);
+}
+
+@media (max-width: 768px) {
+  .radio-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 .radio-map-panel,
@@ -685,16 +733,16 @@ select {
   border: 1px solid rgb(148 163 184 / 24%);
   border-radius: 8px;
   overflow: hidden;
+  height: 100%;
 }
 
 .radio-map-panel {
-  min-height: 650px;
   position: relative;
+  height: 100%;
 }
 
 .radio-map {
   height: 100%;
-  min-height: 650px;
   width: 100%;
 }
 
@@ -716,7 +764,8 @@ select {
 .radio-results {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  max-height: 650px;
+  height: 100%;
+  max-height: 100%;
   padding: 18px;
 }
 
@@ -960,6 +1009,7 @@ app-station-list {
   .radio-workspace {
     grid-template-columns: 1fr;
     min-height: 0;
+    height: auto;
   }
 
   .radio-map-panel,

@@ -28,6 +28,16 @@ export class RadioController {
     return this.radioService.getNearbyStations(lat, lng, radius, limit, name, source);
   }
 
+  @Get('search')
+  async search(
+    @Query('q') query: string,
+    @Query('source') source?: string,
+    @Query('limit') limitStr?: string,
+  ) {
+    const limit = limitStr ? parseInt(limitStr, 10) : 20;
+    return this.radioService.searchStations(query, source, limit);
+  }
+
   @Get('resolve')
   async resolve(@Query('url') url: string) {
     if (!url) {

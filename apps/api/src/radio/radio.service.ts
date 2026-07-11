@@ -416,6 +416,120 @@ export class RadioService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async searchStations(
+    query: string,
+    sourceFilter?: string,
+    limit = 20,
+  ): Promise<NearbyStationEntity[]> {
+    let sql = 'SELECT * FROM radio_stations';
+    const params: any[] = [];
+    const clauses: string[] = [];
+
+    if (query && query.trim()) {
+      clauses.push('(name LIKE ? OR tags LIKE ? OR country LIKE ? OR state LIKE ?)');
+      const q = `%${query.trim()}%`;
+      params.push(q, q, q, q);
+    }
+
+    if (sourceFilter && sourceFilter.trim()) {
+      clauses.push('source = ?');
+      params.push(sourceFilter.trim());
+    }
+
+    if (clauses.length > 0) {
+      sql += ' WHERE ' + clauses.join(' AND ');
+    }
+
+    const stations = await this.databaseService.all<any>(sql, params);
+    const mapped: NearbyStationEntity[] = stations.map((s) => {
+      const streamUrl = s.url_resolved?.trim() || s.url?.trim() || '';
+
+      let sourceReferences = [];
+      let alternativeUrls = [];
+      try {
+        sourceReferences = JSON.parse(s.source_references);
+      } catch {}
+      try {
+        alternativeUrls = JSON.parse(s.alternative_urls);
+      } catch {}
+
+      // Calculate ranking score
+      let score = 0;
+      // 1. HTTPS bonus
+      if (streamUrl.startsWith('https://')) {
+        score += 200;
+      }
+      // 2. Bitrate bonus
+      const bitrate = s.bitrate || 0;
+      score += (bitrate / 32) * 5;
+      // 3. Metadata completeness bonus
+      if (s.favicon) score += 20;
+      if (s.tags) score += 10;
+      if (s.language) score += 10;
+      if (s.state) score += 10;
+      // 4. Playback reliability bonus
+      const success = s.recent_success || 0;
+      const failures = s.recent_failures || 0;
+      score += (success - failures) * 50;
+
+      return {
+        stationuuid: s.stationuuid,
+        name: s.name,
+        url: s.url,
+        url_resolved: s.url_resolved,
+        homepage: s.homepage,
+        favicon: s.favicon,
+        country: s.country,
+        countrycode: s.countrycode,
+        state: s.state,
+        language: s.language,
+        tags: s.tags,
+        codec: s.codec,
+        bitrate: s.bitrate,
+        hls: s.hls === 1,
+        lastcheckok: s.lastcheckok === 1,
+        geo_lat: s.geo_lat,
+        geo_long: s.geo_long,
+        source: s.source,
+        sourceReferences,
+        alternativeUrls,
+        recentSuccess: s.recent_success,
+        recentFailures: s.recent_failures,
+        streamUrl,
+        isHttps: streamUrl.startsWith('https://'),
+        distanceKm: 0,
+        score,
+      };
+    });
+
+    mapped.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+    // Pick top candidates avoiding single source dominance
+    const finalPicked: NearbyStationEntity[] = [];
+    const sourceCounts: Record<string, number> = {};
+
+    for (const station of mapped) {
+      if (finalPicked.length >= limit) {
+        break;
+      }
+      const source = station.source;
+      const count = sourceCounts[source] || 0;
+
+      const hasOtherSourcesLeft = mapped.some(
+        (s) => !finalPicked.includes(s) && s.source !== source,
+      );
+      if (count >= limit / 2 && hasOtherSourcesLeft) {
+        continue;
+      }
+
+      finalPicked.push(station);
+      sourceCounts[source] = count + 1;
+    }
+
+    return finalPicked;
+  }
+
+
   async reportPlaybackStatus(stationuuid: string, success: boolean): Promise<void> {
     if (success) {
       await this.databaseService.run(
