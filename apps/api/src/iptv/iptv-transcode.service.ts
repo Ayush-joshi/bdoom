@@ -29,10 +29,7 @@ const maxConcurrentSessions = 3;
 export class IptvTranscodeService implements OnModuleDestroy {
   private readonly sessions = new Map<string, TranscodeSession>();
 
-  async start(
-    rawUrl: string | undefined,
-    requestedBufferSeconds: number | undefined,
-  ): Promise<{ id: string; playlistUrl: string }> {
+  async start(rawUrl: string | undefined): Promise<{ id: string; playlistUrl: string }> {
     if (this.sessions.size >= maxConcurrentSessions) {
       throw new ServiceUnavailableException(
         'The server is already preparing the maximum number of compatible streams. Try again shortly.',
@@ -40,9 +37,6 @@ export class IptvTranscodeService implements OnModuleDestroy {
     }
 
     const url = await validateRemoteUrl(rawUrl);
-    const bufferSeconds = clampBufferSeconds(requestedBufferSeconds);
-    const requiredSegments = Math.ceil(bufferSeconds / 2);
-    const playlistSize = requiredSegments + 4;
     const id = randomUUID();
     const dir = path.join(transcodeRoot, id);
     await mkdir(dir, { recursive: true });
@@ -90,15 +84,13 @@ export class IptvTranscodeService implements OnModuleDestroy {
         '-hls_time',
         '2',
         '-hls_list_size',
-        String(playlistSize),
-        '-hls_segment_type',
-        'fmp4',
-        '-hls_fmp4_init_filename',
-        'init.mp4',
+        '8',
+        '-mpegts_flags',
+        '+initial_discontinuity+resend_headers',
         '-hls_flags',
-        'delete_segments+omit_endlist+independent_segments+discont_start',
+        'delete_segments+omit_endlist+independent_segments',
         '-hls_segment_filename',
-        path.join(dir, 'segment-%05d.m4s'),
+        path.join(dir, 'segment-%05d.ts'),
         path.join(dir, 'index.m3u8'),
       ],
       { stdio: ['ignore', 'ignore', 'pipe'] },
@@ -117,7 +109,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
     this.sessions.set(id, { id, dir, process, timer });
 
     try {
-      await waitForBuffer(dir, process, requiredSegments, () => stderr);
+      await waitForBuffer(dir, process, () => stderr);
     } catch (error) {
       await this.stop(id);
       throw error;
@@ -150,7 +142,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
 
   async serve(id: string, file: string, res: Response): Promise<void> {
     const session = this.sessions.get(id);
-    if (!session || !/^(index\.m3u8|init\.mp4|segment-\d+\.m4s)$/.test(file)) {
+    if (!session || !/^(index\.m3u8|segment-\d+\.ts)$/.test(file)) {
       throw new NotFoundException('Transcode session was not found.');
     }
 
@@ -162,7 +154,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
     this.touch(id);
 
     res.setHeader('cache-control', 'no-store');
-    res.type(file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp4');
+    res.type(file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t');
     createReadStream(filePath).pipe(res);
   }
 
@@ -191,17 +183,15 @@ export class IptvTranscodeService implements OnModuleDestroy {
 async function waitForBuffer(
   dir: string,
   process: ChildProcess,
-  requiredSegments: number,
   getStderr: () => string,
 ): Promise<void> {
-  const startupTimeoutMs = Math.max(30_000, requiredSegments * 2_000 + 15_000);
-  const deadline = Date.now() + startupTimeoutMs;
+  const deadline = Date.now() + 30_000;
 
   while (Date.now() < deadline) {
     const files = existsSync(dir) ? readdirSync(dir) : [];
     if (
       files.includes('index.m3u8') &&
-      files.filter((file) => file.endsWith('.m4s')).length >= requiredSegments
+      files.filter((file) => file.endsWith('.ts')).length >= 3
     ) {
       return;
     }
@@ -218,11 +208,4 @@ async function waitForBuffer(
   }
 
   throw new BadGatewayException('The stream did not build the requested playback buffer in time.');
-}
-
-function clampBufferSeconds(value: number | undefined): number {
-  if (!Number.isFinite(value)) {
-    return 10;
-  }
-  return Math.min(30, Math.max(6, Math.round(Number(value) / 2) * 2));
 }

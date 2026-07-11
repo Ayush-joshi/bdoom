@@ -17,10 +17,11 @@ type HlsInstance = {
   destroy(): void;
   loadSource(source: string): void;
   on(event: string, handler: (_event: string, data: HlsErrorData) => void): void;
+  recoverMediaError(): void;
 };
 
 type HlsConstructor = {
-  new (config?: { maxBufferLength?: number; maxMaxBufferLength?: number }): HlsInstance;
+  new (): HlsInstance;
   Events: {
     ERROR: string;
   };
@@ -256,22 +257,6 @@ declare global {
                   {{ transcoding() ? 'Buffer: preparing' : 'Buffer: ' + bufferAhead().toFixed(1) + 's ahead' }}
                 </small>
               </div>
-              <label class="buffer-setting">
-                <span>
-                  <strong>Compatible startup buffer</strong>
-                  <output>{{ startupBufferSeconds() }}s</output>
-                </span>
-                <input
-                  type="range"
-                  min="6"
-                  max="30"
-                  step="2"
-                  [ngModel]="startupBufferSeconds()"
-                  (ngModelChange)="startupBufferSeconds.set(+$event)"
-                  [disabled]="transcoding() || playbackMode() === 'compatible'"
-                  aria-label="Compatible mode startup buffer seconds"
-                />
-              </label>
             }
             @if (playerMessage()) {
               <p class="notice">{{ playerMessage() }}</p>
@@ -290,9 +275,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
 
   readonly catalog = signal<IptvCatalog | null>(null);
   readonly bufferAhead = signal(0);
-  readonly bufferPercent = computed(() =>
-    Math.min(100, (this.bufferAhead() / this.startupBufferSeconds()) * 100),
-  );
+  readonly bufferPercent = computed(() => Math.min(100, (this.bufferAhead() / 12) * 100));
   readonly error = signal('');
   readonly loading = signal(false);
   readonly playerError = signal('');
@@ -303,7 +286,6 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   readonly selectedChannel = signal<IptvChannel | null>(null);
   readonly selectedCountry = signal('');
   readonly selectedGroup = signal('');
-  readonly startupBufferSeconds = signal(10);
   readonly transcoding = signal(false);
 
   readonly filteredChannels = computed(() => {
@@ -336,6 +318,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   private hls: HlsInstance | null = null;
   private dash: DashPlayer | null = null;
   private mpegts: MpegtsPlayer | null = null;
+  private mediaRecoveryAttempted = false;
   private playerReady = false;
   private playerRequestId = 0;
   private transcodeId: string | null = null;
@@ -417,15 +400,10 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     const requestId = ++this.playerRequestId;
     this.transcoding.set(true);
     this.playerError.set('');
-    this.playerMessage.set(
-      `Preparing a browser-compatible stream with ${this.startupBufferSeconds()}s of startup buffer...`,
-    );
+    this.playerMessage.set('Preparing a browser-compatible stream...');
     try {
       await this.stopTranscode();
-      const session = await this.iptv.startTranscode(
-        channel.url,
-        this.startupBufferSeconds(),
-      );
+      const session = await this.iptv.startTranscode(channel.url);
       if (requestId !== this.playerRequestId) {
         await this.iptv.stopTranscode(session.id).catch(() => undefined);
         return;
@@ -433,9 +411,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
       this.transcodeId = session.id;
       await this.configureSource(session.playlistUrl, 'hls', 'FFmpeg (H.264/AAC)');
       this.playbackMode.set('compatible');
-      this.playerMessage.set(
-        `Compatible mode is active with a ${this.startupBufferSeconds()}s startup buffer.`,
-      );
+      this.playerMessage.set('Compatible mode is active.');
     } catch (error) {
       this.playbackMode.set('original');
       this.playerError.set(httpErrorMessage(error));
@@ -497,6 +473,7 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
     this.bufferAhead.set(0);
     this.playerError.set('');
     this.playerMessage.set('');
+    this.mediaRecoveryAttempted = false;
 
     if (kind === 'dash') {
       const Dash = await loadDash();
@@ -538,12 +515,14 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
 
     const Hls = await loadHls();
     if (Hls?.isSupported()) {
-      const targetBuffer = this.startupBufferSeconds();
-      this.hls = new Hls({
-        maxBufferLength: targetBuffer,
-        maxMaxBufferLength: targetBuffer * 2,
-      });
+      this.hls = new Hls();
       this.hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal && data.type === 'mediaError' && !this.mediaRecoveryAttempted) {
+          this.mediaRecoveryAttempted = true;
+          this.playerMessage.set('Recovering the media stream...');
+          this.hls?.recoverMediaError();
+          return;
+        }
         this.playerError.set(hlsErrorMessage(data));
       });
       this.hls.loadSource(source);
