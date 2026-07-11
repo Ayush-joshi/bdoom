@@ -90,6 +90,12 @@ export class IptvController {
     await this.transcode.stop(id);
     return { stopped: true };
   }
+
+  @Post('transcode/:id/stop')
+  async stopTranscodeOnUnload(@Param('id') id: string) {
+    await this.transcode.stop(id);
+    return { stopped: true };
+  }
 }
 
 function isPlaylist(url: string, contentType: string): boolean {

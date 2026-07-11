@@ -22,7 +22,7 @@ interface TranscodeSession {
 }
 
 const transcodeRoot = path.join(os.tmpdir(), 'bdoom-iptv-transcodes');
-const sessionTtlMs = 30 * 60 * 1000;
+const sessionIdleTtlMs = 75 * 1000;
 const maxConcurrentSessions = 3;
 
 @Injectable()
@@ -73,6 +73,8 @@ export class IptvTranscodeService implements OnModuleDestroy {
         'main',
         '-pix_fmt',
         'yuv420p',
+        '-vf',
+        'setpts=PTS-STARTPTS',
         '-force_key_frames',
         'expr:gte(t,n_forced*2)',
         '-c:a',
@@ -80,7 +82,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
         '-b:a',
         '128k',
         '-af',
-        'aresample=async=1:first_pts=0',
+        'asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0',
         '-avoid_negative_ts',
         'make_zero',
         '-f',
@@ -110,9 +112,7 @@ export class IptvTranscodeService implements OnModuleDestroy {
       stderr = `${stderr}${chunk.toString()}`.slice(-4000);
     });
 
-    const timer = setTimeout(() => {
-      void this.stop(id);
-    }, sessionTtlMs);
+    const timer = this.createIdleTimer(id);
 
     this.sessions.set(id, { id, dir, process, timer });
 
@@ -122,6 +122,8 @@ export class IptvTranscodeService implements OnModuleDestroy {
       await this.stop(id);
       throw error;
     }
+
+    this.touch(id);
 
     return {
       id,
@@ -157,6 +159,8 @@ export class IptvTranscodeService implements OnModuleDestroy {
       throw new NotFoundException('Transcode output is not ready yet.');
     }
 
+    this.touch(id);
+
     res.setHeader('cache-control', 'no-store');
     res.type(file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp4');
     createReadStream(filePath).pipe(res);
@@ -164,6 +168,23 @@ export class IptvTranscodeService implements OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     await Promise.all([...this.sessions.keys()].map((id) => this.stop(id)));
+  }
+
+  private touch(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) {
+      return;
+    }
+    clearTimeout(session.timer);
+    session.timer = this.createIdleTimer(id);
+  }
+
+  private createIdleTimer(id: string): NodeJS.Timeout {
+    const timer = setTimeout(() => {
+      void this.stop(id);
+    }, sessionIdleTtlMs);
+    timer.unref();
+    return timer;
   }
 }
 

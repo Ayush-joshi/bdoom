@@ -2,6 +2,7 @@ import {
   AfterViewInit,
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   ViewChild,
   computed,
@@ -349,6 +350,19 @@ export class IptvComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroyPlayers();
     void this.stopTranscode();
+  }
+
+  @HostListener('window:pagehide')
+  handlePageHide(): void {
+    const id = this.transcodeId;
+    this.transcodeId = null;
+    if (id) {
+      void fetch(`/api/iptv/transcode/${encodeURIComponent(id)}/stop`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        keepalive: true,
+      });
+    }
   }
 
   async load(): Promise<void> {
