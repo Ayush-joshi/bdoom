@@ -630,6 +630,12 @@ select {
   font-size: clamp(2.4rem, 7vw, 4.8rem);
 }
 
+.radio-controls-wrapper {
+  display: flex;
+  gap: 24px;
+  align-items: end;
+}
+
 .radio-radius-control {
   display: grid;
   gap: 8px;
@@ -1192,4 +1198,14 @@ app-station-list {
     width: 100%;
   }
 }
+
+@media (max-width: 900px) {
+  .radio-controls-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+  }
+}
+
 

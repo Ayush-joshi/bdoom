@@ -21,29 +21,56 @@ import { StationListComponent } from '../station-list/station-list.component';
           <p class="eyebrow">BDoom IP Radio</p>
           <h1>World Radio Map</h1>
         </div>
-        <div class="radio-radius-control">
-          <label>Search radius</label>
-          <div class="radius-inputs">
-            <input
-              type="range"
-              min="10"
-              max="1000"
-              step="10"
-              [ngModel]="radius()"
-              (ngModelChange)="changeRadius($event, true)"
-              aria-label="Search radius slider"
-            />
-            <input
-              type="number"
-              min="10"
-              max="1000"
-              step="1"
-              [ngModel]="radius()"
-              (ngModelChange)="changeRadius($event, true)"
-              aria-label="Search radius numeric value"
-              class="radius-number-input"
-            />
-            <span class="radius-unit">km</span>
+        <div class="radio-controls-wrapper">
+          <div class="radio-radius-control">
+            <label>Search radius</label>
+            <div class="radius-inputs">
+              <input
+                type="range"
+                min="10"
+                max="1000"
+                step="10"
+                [ngModel]="radius()"
+                (ngModelChange)="changeRadius($event, true)"
+                aria-label="Search radius slider"
+              />
+              <input
+                type="number"
+                min="10"
+                max="1000"
+                step="1"
+                [ngModel]="radius()"
+                (ngModelChange)="changeRadius($event, true)"
+                aria-label="Search radius numeric value"
+                class="radius-number-input"
+              />
+              <span class="radius-unit">km</span>
+            </div>
+          </div>
+
+          <div class="radio-radius-control">
+            <label>Max results</label>
+            <div class="radius-inputs">
+              <input
+                type="range"
+                min="10"
+                max="250"
+                step="5"
+                [ngModel]="limit()"
+                (ngModelChange)="changeLimit($event)"
+                aria-label="Max results slider"
+              />
+              <input
+                type="number"
+                min="10"
+                max="250"
+                step="1"
+                [ngModel]="limit()"
+                (ngModelChange)="changeLimit($event)"
+                aria-label="Max results numeric value"
+                class="radius-number-input"
+              />
+            </div>
           </div>
         </div>
       </header>
@@ -133,6 +160,7 @@ export class RadioPageComponent implements OnDestroy {
   readonly error = signal('');
   readonly nearbyStations = signal<NearbyStation[]>([]);
   readonly radius = signal<RadioRadius>(100);
+  readonly limit = signal(100);
   readonly selectedLocation = signal<SelectedLocation | null>(null);
   readonly usedNearestFallback = signal(false);
   readonly searchTerm = signal('');
@@ -209,6 +237,7 @@ export class RadioPageComponent implements OnDestroy {
         undefined,
         this.searchTerm(),
         this.sourceFilter(),
+        this.limit(),
       )
     ).subscribe({
       next: (result) => {
@@ -260,6 +289,7 @@ export class RadioPageComponent implements OnDestroy {
         this.radius(),
         this.searchTerm(),
         this.sourceFilter(),
+        this.limit(),
       )
     ).subscribe({
       next: (result) => {
@@ -301,6 +331,14 @@ export class RadioPageComponent implements OnDestroy {
     this.sourceFilter.set(source);
     if (this.selectedLocation()) {
       this.search(false);
+    }
+  }
+
+  changeLimit(newLimit: number): void {
+    const val = Math.min(250, Math.max(10, Number(newLimit) || 10));
+    this.limit.set(val);
+    if (this.selectedLocation()) {
+      this.search(true);
     }
   }
 }

@@ -13,6 +13,7 @@ export class RadioBrowserService {
     radius?: number,
     name?: string,
     source?: string,
+    limit?: number,
   ): Promise<{ stations: NearbyStation[]; usedNearestFallback: boolean }> {
     let params = new HttpParams()
       .set('lat', latitude.toString())
@@ -25,6 +26,9 @@ export class RadioBrowserService {
     }
     if (source) {
       params = params.set('source', source);
+    }
+    if (limit !== undefined) {
+      params = params.set('limit', limit.toString());
     }
 
     return firstValueFrom(
